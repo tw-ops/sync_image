@@ -3,19 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"text/template"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 	"github.com/google/go-github/v47/github"
 	"golang.org/x/oauth2"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -208,6 +203,12 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		platform = names[1]
 	}
 
+	if !strings.Contains(originImageName, ".") || (!strings.Contains(originImageName, "/") && strings.Index(originImageName, ".") > strings.Index(originImageName, "/")) {
+		originImageName = "docker.io/" + originImageName
+	} else if !strings.Contains(originImageName, "/") { // 对于只有名称加标签的情况，如"nginx:alpine"，直接添加默认域名
+		originImageName = "docker.io/library/" + originImageName
+	}
+
 	if strings.Index(originImageName, ".") > strings.Index(originImageName, "/") {
 		originImageName = "docker.io/" + originImageName
 	}
@@ -232,8 +233,6 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 	segments := strings.Split(targetImageName, "/")
 	targetImageName = segments[len(segments)-1]
 
-	// targetImageName = strings.ReplaceAll(targetImageName, "/", ".")
-
 	if len(config.RegistryNamespace) > 0 {
 		targetImageName = config.RegistryNamespace + "/" + targetImageName
 	}
@@ -252,8 +251,7 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		return errors.New("写入 Dockerfile 报错" + err.Error() + "`"), originImageName, targetImageName, platform
 	}
 
-	// docker buildx build --platform linux/amd64,linux/arm64 -t swr.cn-southwest-2.myhuaweicloud.com/wutong/openeuler:22.03-lts-sp2 . --push
-
+	// docker buildx build --platform linux/amd64,linux/arm64 -t swr.cn-southwest-2.myhuaweicloud.com/wutong/nginx:alpine . --push
 	_, err = execCmd("docker", "buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", targetImageName, ".", "--push")
 	if err != nil {
 		return errors.New("@" + *issues.GetUser().Login + " ,docker push 报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
@@ -296,68 +294,6 @@ func execCmd(command string, args ...string) (string, error) {
 	}
 
 	return output, nil
-}
-
-func dockerLogin(config *Config) (*client.Client, context.Context, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, nil, err
-	}
-	fmt.Println("docker login, server: ", config.Registry, " user: ", config.RegistryUserName, ", password: ***")
-	authConfig := types.AuthConfig{
-		Username:      config.RegistryUserName,
-		Password:      config.RegistryPassword,
-		ServerAddress: config.Registry,
-	}
-	ctx := context.Background()
-	_, err = cli.RegistryLogin(ctx, authConfig)
-	if err != nil {
-		return nil, nil, err
-	}
-	return cli, ctx, nil
-}
-func dockerPull(originImageName string, platform string, cli *client.Client, ctx context.Context) error {
-	fmt.Println("docker pull ", originImageName)
-	pullOut, err := cli.ImagePull(ctx, originImageName, types.ImagePullOptions{
-		Platform: platform,
-	})
-	if err != nil {
-		return err
-	}
-	defer pullOut.Close()
-	io.Copy(os.Stdout, pullOut)
-	return nil
-}
-func dockerTag(originImageName string, targetImageName string, cli *client.Client, ctx context.Context) error {
-	fmt.Println("docker tag ", originImageName, " ", targetImageName)
-	err := cli.ImageTag(ctx, originImageName, targetImageName)
-	return err
-}
-func dockerPush(targetImageName string, platform string, cli *client.Client, ctx context.Context, config *Config) error {
-	fmt.Println("docker push ", targetImageName)
-	authConfig := types.AuthConfig{
-		Username: config.RegistryUserName,
-		Password: config.RegistryPassword,
-	}
-	if len(config.Registry) > 0 {
-		authConfig.ServerAddress = config.Registry
-	}
-	encodedJSON, err := json.Marshal(authConfig)
-	if err != nil {
-		return err
-	}
-	authStr := base64.URLEncoding.EncodeToString(encodedJSON)
-
-	pushOut, err := cli.ImagePush(ctx, targetImageName, types.ImagePushOptions{
-		RegistryAuth: authStr,
-		Platform:     platform,
-	})
-	if err != nil {
-		return err
-	}
-	defer pushOut.Close()
-	io.Copy(os.Stdout, pushOut)
-	return nil
 }
 
 type Config struct {
