@@ -209,10 +209,6 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		originImageName = "docker.io/library/" + originImageName
 	}
 
-	if strings.Index(originImageName, ".") > strings.Index(originImageName, "/") {
-		originImageName = "docker.io/" + originImageName
-	}
-
 	targetImageName = originImageName
 
 	if strings.ContainsAny(originImageName, "@") {

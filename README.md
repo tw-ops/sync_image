@@ -6,7 +6,7 @@ Disclaimer/免责声明
 本人郑重承诺
 1. 本项目不以盈利为目的，过去，现在，未来都不会用于牟利。
 2. 本项目不承诺永久可用（比如包括但不限于 DockerHub 关闭，或者 DockerHub 修改免费计划限制个人免费镜像数量，Github 主动关闭本项目，Github Action 免费计划修改），但会承诺尽量做到向后兼容（也就是后续有新的扩展 Registry 不会改动原有规则导致之前的不可用）。
-3. 本项目不承诺所转存的镜像是安全可靠的，本项目只做转存（从上游 Registry pull 镜像，重新打tag，推送到目标 Registry（本项目是推到 Docker hub , 可以通过 Fork 到自己仓库改成私有 Registry）），不会进行修改（但是转存后的摘要和上游摘要不相同，这是正常的(因为镜像名字变了)），但是如果上游本身就是恶意镜像，那么转存后仍然是恶意镜像。目前支持的 `gcr.io` , `k8s.gcr.io` , `registry.k8s.io` , `quay.io`, `ghcr.io` 好像都是支持个人上传镜像的，在使用镜像前，请自行确认上游是否可靠，应自行避免供应链攻击。
+3. 本项目不承诺所转存的镜像是安全可靠的，本项目只做转存（从上游 Registry pull 镜像，重新打tag，推送到目标 Registry（本项目是推到华为云），不会进行修改（但是转存后的摘要和上游摘要不相同，这是正常的(因为镜像名字变了)），但是如果上游本身就是恶意镜像，那么转存后仍然是恶意镜像。目前支持的 `gcr.io` , `k8s.gcr.io` , `registry.k8s.io` , `quay.io`, `ghcr.io` 好像都是支持个人上传镜像的，在使用镜像前，请自行确认上游是否可靠，应自行避免供应链攻击。
 4. 对于 DockerHub 和 Github 某些策略修改导致的 不可预知且不可控因素等导致业务无法拉取镜像而造成损失的，本项目不承担责任。
 5. 对于上游恶意镜像或者上游镜像依赖库版本低导致的安全风险 本项目无法识别，删除，停用，过滤，要求使用者自行甄别，本项目不承担责任。
 
@@ -20,10 +20,7 @@ Syntax/语法
 gcr.io/namespace/{image}:{tag}
  
 # eq / 等同于
-opsl0o0o/namespace.{image}:{tag}
-
-# special / 特别的
-k8s.gcr.io/{image}:{tag} <==> gcr.io/google-containers/{image}:{tag} <==> opsl0o0o/google-containers.{image}:{tag}
+swr.cn-southwest-2.myhuaweicloud.com/wutong/{image}:{tag}
 
 wget https://raw.githubusercontent.com/opsl0o0o/sync_image/master/pull-k8s-image.sh
 chmod +x pull-k8s-image.sh
@@ -48,9 +45,7 @@ Uses/如何拉取新镜像
 - `[PORTER]k8s.gcr.io/federation-controller-manager-arm64:v1.3.1-beta.1`
 - `[PORTER]gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1`
 
-**特别的**，如果要指定平台的话 `[PORTER]镜像名:tag|平台类型`
-- `[PORTER]busybox:latest|linux/arm64`
-- `[PORTER]busybox:latest|linux/arm/v7`
+**特别的**，默认同步arm/64和amd64/64 双架构的镜像，如果上游同步的镜像为单架构镜像，则同步的多架构镜像实际还是单架构
 
 issues的内容无所谓，可以为空
 
@@ -58,7 +53,7 @@ issues的内容无所谓，可以为空
 
 **注意:**
 
-本项目目前仅支持 `gcr.io` , `k8s.gcr.io` , `registry.k8s.io` , `quay.io`, `ghcr.io` 镜像，其余镜像源可以提 Issues 反馈或者自己 Fork 一份，修改 `rules.yaml`
+本项目目前仅支持 `docker.io`,  `gcr.io` , `k8s.gcr.io` , `registry.k8s.io` , `quay.io`, `ghcr.io` 镜像，其余镜像源可以提 Issues 反馈或者自己 Fork 一份，修改 `rules.yaml`
 
 
 Fork/分叉代码自行维护
@@ -68,46 +63,12 @@ Fork/分叉代码自行维护
 - 可选: 修改 [./rules.yaml](./rules.yaml) 增加暂未支持的镜像库
 - 在 [./settings/actions](../../settings/actions) 的 `Workflow permissions` 选项中，授予读写权限
 - 在 [./settings/secrets/actions](../../settings/secrets/actions) 创建自己的参数
-- 随便新建个issues，然后在右侧创建个名为 `porter` 和 `question` 的 label，后续通过模板创建时会自动带上。 详见 https://github.com/opsl0o0o/sync_image/issues/3893
+- 随便新建个issues，然后在右侧创建个名为 `porter` 和 `question` 的 label，后续通过模板创建时会自动带上
 
 `DOCKER_REGISTRY`: 如果推到 docker hub 为空即可
-
 `DOCKER_NAMESPACE`: 如果推到 docker hub ，则是自己的 docker hub 账号(不带@email部分)，例如我的 opsl0o0o
-
 `DOCKER_USER`: 如果推到 docker hub,则是 docker hub 账号(不带@email部分)，例如我的 opsl0o0o
-
 `DOCKER_PASSWORD`: 如果推到 docker hub，则是 docker hub 密码
-
-k8s.gcr.io 和 gcr.io 镜像tags
-------
-```bash
-
-# k8s.gcr.io
-# 可以通过浏览器打开或者curl等打开(需梯子)
-# e.g. https://k8s.gcr.io/v2/sig-storage/nfs-subdir-external-provisioner/tags/list
-https://k8s.gcr.io/v2/${namespace}/${image}/tags/list
-
-# 也可以直接用浏览打开看 UI 版的(需梯子)
-# e.g. web ui https://console.cloud.google.com/gcr/images/k8s-artifacts-prod/us/sig-storage/nfs-subdir-external-provisioner
-https://console.cloud.google.com/gcr/images/k8s-artifacts-prod/us/${namespace}/${image}
-
-# gcr.io
-# 可以通过浏览器打开或者curl等打开(需梯子)
-# e.g. https://gcr.io/v2/gloo-mesh/cert-agent/tags/list 
-https://gcr.io/v2/${namespace}/${image}/tags/list
-
-# e.g. web ui https://console.cloud.google.com/gcr/images/etcd-development/global/etcd
-# 也可以直接用浏览打开看 UI 版的(需梯子)
-https://console.cloud.google.com/gcr/images/${namespace}/global/${image}
-
-# docker hub
-# e.g. https://registry.hub.docker.com/v1/repositories/opsl0o0o/google-containers.sig-storage.nfs-subdir-external-provisioner/tags
-https://registry.hub.docker.com/v1/repositories/${namespace}/${image}/tags
-
-```
-
-ReTag opsl0o0o images to gcr.io/ 将加速下载的镜像重命名为gcr.io
--------
 
 ### 批量拉取并转换镜像
 
@@ -177,20 +138,3 @@ mirror_img=$(echo ${k8s_img}|
 sudo docker pull ${mirror_img}
 sudo docker tag ${mirror_img} ${k8s_img}
 ```
-
-Copyright and License
----
-
-This module is licensed under the BSD license.
-
-Copyright (C) 2017-, by AnJia <opsl0o0o@gmail.com>.
-
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

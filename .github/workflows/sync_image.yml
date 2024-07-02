@@ -1,4 +1,4 @@
-name: gcr.io_mirror
+name: sync_image
 
 on:
   schedule:

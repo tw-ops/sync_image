@@ -1,4 +1,4 @@
-module image-mirror
+module sync-image
 
 go 1.20
 
