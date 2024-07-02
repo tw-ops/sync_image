@@ -5,16 +5,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/go-github/v47/github"
+	"github.com/huaweicloud/huaweicloud-sdk-go-v3/core/auth/basic"
+	swr "github.com/huaweicloud/huaweicloud-sdk-go-v3/services/swr/v2"
+	"github.com/huaweicloud/huaweicloud-sdk-go-v3/services/swr/v2/model"
+	region "github.com/huaweicloud/huaweicloud-sdk-go-v3/services/swr/v2/region"
+	"golang.org/x/oauth2"
+	"gopkg.in/alecthomas/kingpin.v2"
+	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"text/template"
-
-	"github.com/google/go-github/v47/github"
-	"golang.org/x/oauth2"
-	"gopkg.in/alecthomas/kingpin.v2"
-	"gopkg.in/yaml.v3"
 )
 
 var resultTpl = `
@@ -253,6 +256,11 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		return errors.New("@" + *issues.GetUser().Login + " ,docker push 报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
 	}
 
+	err = ModifyImagePublic(targetImageName)
+	if err != nil {
+		return errors.New("@" + *issues.GetUser().Login + " ,调整 repo 权限报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
+	}
+
 	return nil, originImageName, targetImageName, platform
 }
 
@@ -317,4 +325,32 @@ func getIssues(cli *github.Client, ctx context.Context, config *Config) ([]*gith
 		ListOptions: github.ListOptions{Page: 1, PerPage: 1},
 	})
 	return issues, err
+}
+
+func ModifyImagePublic(targetImageName string) error {
+	auth, _ := basic.NewCredentialsBuilder().
+		WithAk(os.Getenv("HUAWEICLOUD_SDK_AK")).
+		WithSk(os.Getenv("HUAWEICLOUD_SDK_SK")).
+		SafeBuild()
+
+	client := swr.NewSwrClient(
+		swr.SwrClientBuilder().
+			WithRegion(region.ValueOf("cn-southwest-2")).
+			WithCredential(auth).
+			Build())
+
+	parts := strings.Split(targetImageName, "/")
+	namespace := parts[1]
+	repo := strings.Split(parts[2], ":")[0]
+
+	request := &model.UpdateRepoRequest{}
+	request.Namespace = namespace
+	request.Repository = repo
+	request.Body = &model.UpdateRepoRequestBody{
+		IsPublic: true,
+	}
+	_, err := client.UpdateRepo(request)
+	if err != nil {
+		return err
+	}
 }
