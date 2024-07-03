@@ -294,7 +294,8 @@ func execCmd(command string, args ...string) (string, error) {
 	output := out.String()
 
 	if err != nil {
-		return output, fmt.Errorf("执行命令时发生错误: %w, 命令: %s, 输出: %s", err, command, output)
+		return output, fmt.Errorf("执行命令时发生错误: '%w', 命令: '%s %s', 输出: '%s'", err, command, strings.Join(args, " "), output)
+		strings.Join()
 	}
 
 	return output, nil
