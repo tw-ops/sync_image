@@ -256,10 +256,10 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		return errors.New("docker buildx 构建推送报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
 	}
 
-	//err = ModifyImagePublic(targetImageName)
-	//if err != nil {
-	//	return errors.New("@" + *issues.GetUser().Login + " ,调整 repo 权限报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
-	//}
+	err = ModifyImagePublic(targetImageName)
+	if err != nil {
+		return errors.New("@" + *issues.GetUser().Login + " ,调整 repo 权限报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
+	}
 
 	return nil, originImageName, targetImageName, platform
 }
