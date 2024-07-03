@@ -253,7 +253,7 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 	// docker buildx build --platform linux/amd64,linux/arm64 -t swr.cn-southwest-2.myhuaweicloud.com/wutong/nginx:alpine . --push
 	_, err = execCmd("docker", "buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", targetImageName, ".", "--push")
 	if err != nil {
-		return errors.New("@" + *issues.GetUser().Login + " ,docker push 报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
+		return errors.New("docker buildx 构建推送报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
 	}
 
 	err = ModifyImagePublic(targetImageName)
@@ -294,7 +294,7 @@ func execCmd(command string, args ...string) (string, error) {
 	output := out.String()
 
 	if err != nil {
-		return output, fmt.Errorf("执行命令时发生错误: %w, 输出: %s", err, output)
+		return output, fmt.Errorf("执行命令时发生错误: %w, 命令: %s, 输出: %s", err, command, output)
 	}
 
 	return output, nil
