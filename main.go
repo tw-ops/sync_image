@@ -329,8 +329,8 @@ func getIssues(cli *github.Client, ctx context.Context, config *Config) ([]*gith
 
 func ModifyImagePublic(targetImageName string) error {
 	auth, _ := basic.NewCredentialsBuilder().
-		WithAk(os.Getenv("HUAWEICLOUD_SDK_AK")).
-		WithSk(os.Getenv("HUAWEICLOUD_SDK_SK")).
+		WithAk(os.Getenv("AK")).
+		WithSk(os.Getenv("SK")).
 		SafeBuild()
 
 	client := swr.NewSwrClient(
