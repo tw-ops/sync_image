@@ -20,15 +20,8 @@ Syntax/语法
 gcr.io/namespace/{image}:{tag}
  
 # eq / 等同于
-swr.cn-southwest-2.myhuaweicloud.com/wutong/{image}:{tag}
+swr.cn-southwest-2.myhuaweicloud.com/wutongbase/{image}:{tag}
 
-wget https://raw.githubusercontent.com/opsl0o0o/sync_image/master/pull-k8s-image.sh
-chmod +x pull-k8s-image.sh
-
-./pull-k8s-image.sh k8s.gcr.io/federation-controller-manager-arm64:v1.3.1-beta.1
-# 执行如下操作
-# docker pull opsl0o0o/google-containers.federation-controller-manager-arm64:v1.3.1-beta.1
-# docker tag opsl0o0o/google-containers.federation-controller-manager-arm64:v1.3.1-beta.1 k8s.gcr.io/federation-controller-manager-arm64:v1.3.1-beta.1
 ```
 
 Uses/如何拉取新镜像
