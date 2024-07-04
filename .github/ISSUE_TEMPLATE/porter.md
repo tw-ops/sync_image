@@ -13,13 +13,13 @@ assignees: ''
 
 **标题必须为 `[PORTER]镜像名:tag` 的格式，** 例如
 - `[PORTER]nginx:alpine`
-- `[PORTER]gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1`
+- `[PORTER]gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1`
 
-**特别的**，默认同步arm/64和amd64/64 双架构的镜像，如果上游同步的镜像为单架构镜像，则同步的多架构镜像实际还是单架构
+**特别的**，默认同步 `arm64` 和 `amd64` 双架构的镜像，如果`上游同步的镜像为单架构镜像`，则同步的多架构镜像`实际还是单架构`
 
 issues的内容无所谓，可以为空
 
-可以参考 [已搬运镜像集锦](https://github.com/anjia0532/gcr.io_mirror/issues?q=is%3Aissue+label%3Aporter+)
+可以参考 [已搬运镜像集锦](https://github.com/tw-ops/sync_image/issues?q=is%3Aissue+label%3Aporter+)
 
 **注意:**
 

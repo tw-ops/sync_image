@@ -19,14 +19,13 @@ Syntax/语法
 # origin / 原镜像名称
 gcr.io/namespace/{image}:{tag}
  
-# eq / 等同于
+# target / 转换后镜像
 swr.cn-southwest-2.myhuaweicloud.com/wutongbase/{image}:{tag}
-
 ```
 
 Uses/如何拉取新镜像
 -------
-[创建issues(直接套用模板即可，别自己瞎改labels)](https://github.com/opsl0o0o/sync_image/issues/new?assignees=&labels=porter&template=porter.md&title=%5BPORTER%5D) ,将自动触发 github actions 进行拉取转推到docker hub
+[创建issues(直接套用模板即可，别自己瞎改labels)](https://github.com/tw-ops/sync_image/issues/new?assignees=&labels=porter&template=porter.md&title=%5BPORTER%5D) ,将自动触发 github actions 进行拉取转推到docker hub
 
 **注意：**
 
@@ -38,11 +37,11 @@ Uses/如何拉取新镜像
 - `[PORTER]k8s.gcr.io/federation-controller-manager-arm64:v1.3.1-beta.1`
 - `[PORTER]gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1`
 
-**特别的**，默认同步arm/64和amd64/64 双架构的镜像，如果上游同步的镜像为单架构镜像，则同步的多架构镜像实际还是单架构
+**特别的**，默认同步 `arm64` 和 `amd64` 双架构的镜像，如果`上游同步的镜像为单架构镜像`，则同步的多架构镜像`实际还是单架构`
 
 issues的内容无所谓，可以为空
 
-可以参考 [已搬运镜像集锦](https://github.com/opsl0o0o/sync_image/issues?q=is%3Aissue+label%3Aporter+)
+可以参考 [已搬运镜像集锦](https://github.com/tw-ops/sync_image/issues?q=is%3Aissue+label%3Aporter+)
 
 **注意:**
 
@@ -52,66 +51,18 @@ issues的内容无所谓，可以为空
 Fork/分叉代码自行维护
 -------
 
-- 必须: <https://github.com/opsl0o0o/sync_image/fork> 点击连接在自己账号下分叉出 `gcr.io_mirror` 项目
+- 必须: <https://github.com/tw-ops/sync_image/fork> 点击连接在自己账号下分叉出 `sync_image` 项目
 - 可选: 修改 [./rules.yaml](./rules.yaml) 增加暂未支持的镜像库
 - 在 [./settings/actions](../../settings/actions) 的 `Workflow permissions` 选项中，授予读写权限
 - 在 [./settings/secrets/actions](../../settings/secrets/actions) 创建自己的参数
 - 随便新建个issues，然后在右侧创建个名为 `porter` 和 `question` 的 label，后续通过模板创建时会自动带上
 
 `DOCKER_REGISTRY`: 如果推到 docker hub 为空即可
-`DOCKER_NAMESPACE`: 如果推到 docker hub ，则是自己的 docker hub 账号(不带@email部分)，例如我的 opsl0o0o
-`DOCKER_USER`: 如果推到 docker hub,则是 docker hub 账号(不带@email部分)，例如我的 opsl0o0o
+`DOCKER_NAMESPACE`: 如果推到 docker hub ，则是自己的 docker hub 账号(不带@email部分)，例如我的 tw-ops
+`DOCKER_USER`: 如果推到 docker hub,则是 docker hub 账号(不带@email部分)，例如我的 tw-ops
 `DOCKER_PASSWORD`: 如果推到 docker hub，则是 docker hub 密码
-
-### 批量拉取并转换镜像
-
-```shell
-sudo tee -a img.txt > /dev/null <<EOT
-gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1
-gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1
-gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1
-EOT
-
-# chmod +x batch-pull-k8s-image.sh
-cat batch-pull-k8s-image.sh
-# 代码如下 ↓↓↓
-```
-
-```bash
-#!/bin/sh
-
-# 替换 gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1 为真实 image
-# 将会把 gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1 转换为 opsl0o0o/google-containers.federation-controller-manager-arm64:v1.3.1-beta.1 并且会拉取他
-# k8s.gcr.io/{image}/{tag} <==> gcr.io/google-containers/{image}/{tag} <==> opsl0o0o/google-containers.{image}/{tag}
-
-images=$(cat img.txt)
-
-# 或者 
-#images=$(cat <<EOF
-# gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1
-# gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1
-# gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1
-#EOF
-#)
-
-eval $(echo ${images}|
-        sed 's/k8s\.gcr\.io/opsl0o0o\/google-containers/g;s/gcr\.io/opsl0o0o/g;s/\//\./g;s/ /\n/g;s/opsl0o0o\./opsl0o0o\//g' |
-        uniq |
-        awk '{print "sudo docker pull "$1";"}'
-       )
-
-# 下面这段代码将把本地所有的 opsl0o0o 镜像 (例如 opsl0o0o/google-containers.federation-controller-manager-arm64:v1.3.1-beta.1 )
-# 转换成 grc.io 或者 k8s.gcr.io 的镜像 (例如 gcr.io/google-containers/federation-controller-manager-arm64:v1.3.1-beta.1)
-# k8s.gcr.io/{image}/{tag} <==> gcr.io/google-containers/{image}/{tag} <==> opsl0o0o/google-containers.{image}/{tag}
-
-for img in $(sudo docker images --format "{{.Repository}}:{{.Tag}}"| grep "opsl0o0o"); do
-  n=$(echo ${img}| awk -F'[/.:]' '{printf "gcr.io/%s",$2}')
-  image=$(echo ${img}| awk -F'[/.:]' '{printf "/%s",$3}')
-  tag=$(echo ${img}| awk -F'[:]' '{printf ":%s",$2}')
-  sudo docker tag $img "${n}${image}${tag}"
-  [[ ${n} == "gcr.io/google-containers" ]] && sudo docker tag $img "k8s.gcr.io${image}${tag}"
-done
-```
+`HW_AK`: 华为云AK，由于华为云默认镜像为私有，需要调整为公共镜像
+`HW_SK`: 华为云SK
 
 ### 拉取并转换单个镜像
 ```shell
@@ -125,7 +76,7 @@ cat pull-k8s-images.sh
 
 k8s_img=$1
 mirror_img=$(echo ${k8s_img}|
-        sed 's/k8s\.gcr\.io/opsl0o0o\/google-containers/g;s/gcr\.io/opsl0o0o/g;s/\//\./g;s/ /\n/g;s/opsl0o0o\./opsl0o0o\//g' |
+        sed 's/k8s\.gcr\.io/tw-ops\/google-containers/g;s/gcr\.io/tw-ops/g;s/\//\./g;s/ /\n/g;s/tw-ops\./tw-ops\//g' |
         uniq)
 
 sudo docker pull ${mirror_img}
