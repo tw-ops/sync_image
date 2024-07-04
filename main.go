@@ -222,9 +222,9 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		registrys = append(registrys, k)
 	}
 
-	if strings.EqualFold(targetImageName, originImageName) {
-		return errors.New("@" + *issues.GetUser().Login + " 暂不支持同步" + originImageName + ",目前仅支持同步 `" + strings.Join(registrys, " ,") + "`镜像"), originImageName, targetImageName, platform
-	}
+	//if strings.EqualFold(targetImageName, originImageName) {
+	//	return errors.New("@" + *issues.GetUser().Login + " 暂不支持同步" + originImageName + "到" + targetImageName + ",目前仅支持同步 `" + strings.Join(registrys, " ,") + "`镜像"), originImageName, targetImageName, platform
+	//}
 
 	segments := strings.Split(targetImageName, "/")
 	targetImageName = segments[len(segments)-1]
