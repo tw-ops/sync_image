@@ -24,9 +24,6 @@ var resultTpl = `
 {{ if .Success }}
 **转换完成**
 ^^^bash
-{{ if .Registry }}
-docker login -u{{ .RegistryUser }} {{ .Registry }}
-{{ end }}
 #原镜像
 {{ .OriginImageName }}
 
