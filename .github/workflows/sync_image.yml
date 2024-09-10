@@ -1,8 +1,6 @@
 name: sync_image
 
 on:
-  schedule:
-    - cron: '0 16 * * *'
   issues:
     types: [opened, edited]
   label:
