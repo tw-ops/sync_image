@@ -247,8 +247,8 @@ func mirrorByIssues(issues *github.Issue, config *Config) (err error, originImag
 		return errors.New("写入 Dockerfile 报错" + err.Error() + "`"), originImageName, targetImageName, platform
 	}
 
-	// docker buildx build --platform linux/amd64,linux/arm64 -t swr.cn-southwest-2.myhuaweicloud.com/wutong/nginx:alpine . --push
-	_, err = execCmd("docker", "buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", targetImageName, ".", "--push")
+	// docker buildx build --platform linux/amd64,linux/arm64 -t swr.cn-southwest-2.myhuaweicloud.com/wutong/nginx:alpine --progress plain . --push
+	_, err = execCmd("docker", "buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", targetImageName, "--progress", "plain", ".", "--push")
 	if err != nil {
 		return errors.New("docker buildx 构建推送报错 `" + err.Error() + "`"), originImageName, targetImageName, platform
 	}
