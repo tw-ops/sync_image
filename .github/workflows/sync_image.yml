@@ -58,23 +58,39 @@ jobs:
         env:
           AK: ${{ secrets.HW_AK }}
           SK: ${{ secrets.HW_SK }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_USER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+          DOCKER_NAMESPACE: ${{ secrets.DOCKER_NAMESPACE }}
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}"
+
+          echo "使用镜像: $IMAGE"
+          echo "配置信息:"
+          echo "  GitHub User: ${GITHUB_USER}"
+          echo "  GitHub Repo: ${GITHUB_REPO}"
+          echo "  GitHub Run ID: ${GITHUB_RUN_ID}"
+          echo "  Docker Registry: ${DOCKER_REGISTRY}"
+          echo "  Docker Namespace: ${DOCKER_NAMESPACE}"
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -e AK="${AK}" \
             -e SK="${SK}" \
+            -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+            -e GITHUB_USER="${GITHUB_USER}" \
+            -e GITHUB_REPO="${GITHUB_REPO}" \
+            -e GITHUB_RUN_ID="${GITHUB_RUN_ID}" \
+            -e DOCKER_REGISTRY="${DOCKER_REGISTRY}" \
+            -e DOCKER_NAMESPACE="${DOCKER_NAMESPACE}" \
+            -e DOCKER_USER="${DOCKER_USER}" \
+            -e DOCKER_PASSWORD="${DOCKER_PASSWORD}" \
             $IMAGE \
-            --config=configs/rules.yaml \
-            --github.token=${{ secrets.GITHUB_TOKEN }} \
-            --github.user=${{ github.repository_owner }} \
-            --github.repo=${{ github.event.repository.name }} \
-            --docker.registry=${{ secrets.DOCKER_REGISTRY }} \
-            --docker.namespace=${{ secrets.DOCKER_NAMESPACE }} \
-            --docker.user=${{ secrets.DOCKER_USER }} \
-            --docker.secret=${{ secrets.DOCKER_PASSWORD }} \
-            --github.run_id=${{ github.run_id }}
+            --config=/app/configs/rules.yaml
 
   auto_close_issues:
     runs-on: ubuntu-latest

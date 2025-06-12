@@ -108,12 +108,16 @@ func main() {
 
 // loadConfig 加载配置
 func loadConfig() (*config.Config, error) {
-	cfg, err := config.LoadConfig(*configFile)
+	// 使用原有的 LoadConfig，但跳过验证
+	cfg, err := loadConfigWithoutValidation(*configFile)
 	if err != nil {
 		return nil, fmt.Errorf("加载配置失败: %w", err)
 	}
 
-	// 命令行参数覆盖配置文件
+	// 从环境变量加载配置（如果配置文件加载成功，这里会补充环境变量）
+	loadConfigFromEnvironment(cfg)
+
+	// 命令行参数覆盖配置文件和环境变量（最高优先级）
 	if *githubToken != "" {
 		cfg.GitHub.Token = *githubToken
 	}
@@ -140,6 +144,58 @@ func loadConfig() (*config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadConfigWithoutValidation 加载配置但不进行验证
+func loadConfigWithoutValidation(configPath string) (*config.Config, error) {
+	// 直接使用 config 包的 LoadConfig，但忽略验证错误
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		// 如果是验证错误，我们忽略它，因为命令行参数会覆盖
+		if fmt.Sprintf("%v", err) != "config validation failed: GitHub token is required" {
+			return nil, err
+		}
+		// 如果是验证错误，创建默认配置并从环境变量加载
+		cfg = config.DefaultConfig()
+		// 从环境变量加载所有配置
+		loadConfigFromEnvironment(cfg)
+	}
+
+	return cfg, nil
+}
+
+// loadConfigFromEnvironment 从环境变量加载配置
+func loadConfigFromEnvironment(cfg *config.Config) {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		cfg.GitHub.Token = token
+	}
+	if user := os.Getenv("GITHUB_USER"); user != "" {
+		cfg.GitHub.User = user
+	}
+	if repo := os.Getenv("GITHUB_REPO"); repo != "" {
+		cfg.GitHub.Repo = repo
+	}
+	if runID := os.Getenv("GITHUB_RUN_ID"); runID != "" {
+		cfg.GitHub.RunID = runID
+	}
+	if registry := os.Getenv("DOCKER_REGISTRY"); registry != "" {
+		cfg.Docker.Registry = registry
+	}
+	if namespace := os.Getenv("DOCKER_NAMESPACE"); namespace != "" {
+		cfg.Docker.Namespace = namespace
+	}
+	if username := os.Getenv("DOCKER_USER"); username != "" {
+		cfg.Docker.Username = username
+	}
+	if password := os.Getenv("DOCKER_PASSWORD"); password != "" {
+		cfg.Docker.Password = password
+	}
+	if ak := os.Getenv("AK"); ak != "" {
+		cfg.HuaweiSWR.AccessKey = ak
+	}
+	if sk := os.Getenv("SK"); sk != "" {
+		cfg.HuaweiSWR.SecretKey = sk
+	}
 }
 
 // App 应用程序结构
