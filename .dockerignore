@@ -1,0 +1,40 @@
+# Git 相关
+.git
+.gitignore
+
+# 构建产物
+build/
+sync-image
+sync
+*.exe
+
+# 测试相关
+coverage.out
+coverage.html
+*.test
+
+# 临时文件
+*.tmp
+*.log
+Dockerfile
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统相关
+.DS_Store
+Thumbs.db
+
+# 备份文件
+*.backup
+main.go.backup
+
+# 文档
+README.md
+LICENSE
+
+# GitHub 相关（在容器中不需要）
+.github/
