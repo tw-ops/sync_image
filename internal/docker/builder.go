@@ -404,6 +404,7 @@ func (b *SDKBuilder) ensureMultiPlatformBuilder() error {
 	createCmd := exec.Command("docker", "buildx", "create",
 		"--name", builderName,
 		"--driver", "docker-container",
+		"--driver-opt", "image=moby/buildkit:v0.9.3",
 		"--use")
 
 	var createOut bytes.Buffer
