@@ -270,21 +270,21 @@ func (s *DefaultSyncService) formatErrorDetails(appErr *errors.AppError) string 
 	var details strings.Builder
 
 	// 错误类型
-	details.WriteString(fmt.Sprintf("错误类型: %s\n", appErr.Type))
+	details.WriteString(fmt.Sprintf("错误类型: `%s`\n", appErr.Type))
 
 	// 错误消息
 	details.WriteString(fmt.Sprintf("错误消息: %s\n", appErr.Message))
 
 	// 底层错误
 	if appErr.Cause != nil {
-		details.WriteString(fmt.Sprintf("底层错误: %s\n", appErr.Cause.Error()))
+		details.WriteString(fmt.Sprintf("底层错误: `%s`\n", appErr.Cause.Error()))
 	}
 
 	// 上下文信息
 	if len(appErr.Context) > 0 {
 		details.WriteString("上下文信息:\n")
 		for key, value := range appErr.Context {
-			details.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+			details.WriteString(fmt.Sprintf("  %s: `%v`\n", key, value))
 		}
 	}
 

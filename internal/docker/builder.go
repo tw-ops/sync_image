@@ -182,6 +182,11 @@ func (b *SDKBuilder) buildWithBuildx(ctx context.Context, sourceImage, targetIma
 		return fmt.Errorf("设置 buildx 构建器失败: %w", err)
 	}
 
+	// 确保 buildx 环境下的 Docker 登录
+	if err := b.ensureBuildxLogin(); err != nil {
+		return fmt.Errorf("buildx 环境登录失败: %w", err)
+	}
+
 	// 使用 buildx 命令进行多架构构建
 	return b.execBuildxCommand(targetImage, platforms)
 }
@@ -228,7 +233,7 @@ func (b *SDKBuilder) buildSingleArch(ctx context.Context, sourceImage, targetIma
 			WithContext("target_image", targetImage)
 	}
 
-	b.logger.Info("成功使用 Docker SDK 构建并推送单架构镜像: %s", targetImage)
+	b.logger.Info("成功使用 Docker SDK 构建并推送单架构镜像: `%s`", targetImage)
 	return nil
 }
 
@@ -284,7 +289,7 @@ func (b *SDKBuilder) readBuildOutput(reader io.Reader) error {
 		}
 
 		if message.Stream != "" {
-			b.logger.Debug("构建输出: %s", strings.TrimSpace(message.Stream))
+			b.logger.Debug("构建输出: `%s`", strings.TrimSpace(message.Stream))
 		}
 	}
 
@@ -293,7 +298,7 @@ func (b *SDKBuilder) readBuildOutput(reader io.Reader) error {
 
 // pushImage 推送镜像
 func (b *SDKBuilder) pushImage(ctx context.Context, imageName string) error {
-	b.logger.Debug("推送镜像: %s", imageName)
+	b.logger.Debug("推送镜像: `%s`", imageName)
 
 	// 创建认证配置
 	authConfig := registry.AuthConfig{
@@ -330,7 +335,7 @@ func (b *SDKBuilder) pushImage(ctx context.Context, imageName string) error {
 		return fmt.Errorf("读取推送输出失败: %w", err)
 	}
 
-	b.logger.Info("成功推送镜像: %s", imageName)
+	b.logger.Info("成功推送镜像: `%s`", imageName)
 	return nil
 }
 
@@ -365,7 +370,7 @@ func (b *SDKBuilder) readPushOutput(reader io.Reader) error {
 
 // WriteDockerfile 写入 Dockerfile（多架构构建时需要）
 func (b *SDKBuilder) WriteDockerfile(sourceImage string) error {
-	b.logger.Debug("写入 Dockerfile，源镜像: %s", sourceImage)
+	b.logger.Debug("写入 Dockerfile，源镜像: `%s`", sourceImage)
 
 	content := fmt.Sprintf("FROM %s\n", sourceImage)
 
@@ -401,7 +406,7 @@ func (b *SDKBuilder) setupBuildxBuilder() error {
 		b.logger.Warn("检查 buildx 构建器失败: %v", err)
 	} else {
 		outputStr := string(output)
-		b.logger.Debug("当前 buildx 构建器列表:\n%s", outputStr)
+		b.logger.Debug("当前 buildx 构建器列表:\n```\n%s\n```", outputStr)
 
 		// 检查是否已有支持多平台的构建器
 		lines := strings.Split(outputStr, "\n")
@@ -432,7 +437,7 @@ func (b *SDKBuilder) setupBuildxBuilder() error {
 
 // createContainerBuilder 创建 docker-container 驱动的构建器
 func (b *SDKBuilder) createContainerBuilder(builderName string) error {
-	b.logger.Info("创建 docker-container 构建器: %s", builderName)
+	b.logger.Info("创建 docker-container 构建器: `%s`", builderName)
 
 	// 先尝试删除可能存在的同名构建器
 	rmCmd := exec.Command("docker", "buildx", "rm", builderName)
@@ -451,8 +456,8 @@ func (b *SDKBuilder) createContainerBuilder(builderName string) error {
 
 	if err := createCmd.Run(); err != nil {
 		createOutput := createOut.String()
-		b.logger.Warn("创建 docker-container 构建器失败: %v\n输出: %s", err, createOutput)
-		return err
+		b.logger.Error("创建 docker-container 构建器失败，详细输出:\n```\n%s\n```", createOutput)
+		return fmt.Errorf("创建 docker-container 构建器失败: %w", err)
 	}
 
 	b.logger.Info("成功创建 docker-container 构建器")
@@ -498,10 +503,40 @@ func (b *SDKBuilder) forceCreateBuilder(builderName string) error {
 
 	if err := createCmd.Run(); err != nil {
 		createOutput := createOut.String()
-		return fmt.Errorf("强制创建构建器失败: %w\n输出: %s", err, createOutput)
+		b.logger.Error("强制创建构建器失败，详细输出:\n```\n%s\n```", createOutput)
+		return fmt.Errorf("强制创建构建器失败: %w", err)
 	}
 
 	b.logger.Info("成功创建构建器")
+	return nil
+}
+
+// ensureBuildxLogin 确保 buildx 环境下的 Docker 登录
+func (b *SDKBuilder) ensureBuildxLogin() error {
+	b.logger.Debug("确保 buildx 环境下的 Docker 登录")
+
+	// 使用 docker login 命令确保在 buildx 环境中也能访问私有仓库
+	if b.config.Registry != "" && b.config.Username != "" && b.config.Password != "" {
+		b.logger.Info("为 buildx 环境配置 Docker 登录: `%s`", b.config.Registry)
+
+		loginCmd := exec.Command("docker", "login", b.config.Registry, "-u", b.config.Username, "--password-stdin")
+		loginCmd.Stdin = strings.NewReader(b.config.Password)
+
+		var loginOut bytes.Buffer
+		loginCmd.Stdout = &loginOut
+		loginCmd.Stderr = &loginOut
+
+		if err := loginCmd.Run(); err != nil {
+			loginOutput := loginOut.String()
+			b.logger.Error("buildx 环境 Docker 登录失败:\n```\n%s\n```", loginOutput)
+			return fmt.Errorf("buildx 环境 Docker 登录失败: %w", err)
+		}
+
+		b.logger.Info("buildx 环境 Docker 登录成功")
+	} else {
+		b.logger.Debug("跳过 buildx 环境 Docker 登录（无凭据配置）")
+	}
+
 	return nil
 }
 
@@ -516,7 +551,7 @@ func (b *SDKBuilder) execBuildxCommand(targetImage, platforms string) error {
 	// 设置标签和其他参数
 	args = append(args, "-t", targetImage, "--progress", "plain", ".", "--push")
 
-	b.logger.Debug("执行 Docker buildx 命令: docker %s", strings.Join(args, " "))
+	b.logger.Debug("执行 Docker buildx 命令: `docker %s`", strings.Join(args, " "))
 
 	// 清理参数以防止注入
 	cleanArgs := make([]string, len(args))
@@ -533,8 +568,10 @@ func (b *SDKBuilder) execBuildxCommand(targetImage, platforms string) error {
 	output := out.String()
 
 	if err != nil {
-		return fmt.Errorf("buildx 命令执行失败: %w\n命令: docker %s\n输出: %s",
-			err, strings.Join(cleanArgs, " "), output)
+		// 记录详细输出到日志，但不包含在错误信息中
+		b.logger.Error("buildx 构建失败，详细输出:\n```\n%s\n```", output)
+		return fmt.Errorf("buildx 命令执行失败: %w\n命令: `docker %s`",
+			err, strings.Join(cleanArgs, " "))
 	}
 
 	b.logger.Info("成功执行 buildx 多架构构建")
@@ -578,7 +615,7 @@ func (b *SDKBuilder) cleanupBuildxBuilder() {
 
 // inspectImageArchitectures 检测镜像支持的架构
 func (b *SDKBuilder) inspectImageArchitectures(ctx context.Context, imageName string) ([]string, error) {
-	b.logger.Debug("检测镜像架构: %s", imageName)
+	b.logger.Debug("检测镜像架构: `%s`", imageName)
 
 	// 首先尝试拉取镜像的 manifest
 	inspect, _, err := b.client.ImageInspectWithRaw(ctx, imageName)
@@ -590,7 +627,7 @@ func (b *SDKBuilder) inspectImageArchitectures(ctx context.Context, imageName st
 	// 从本地镜像获取架构信息
 	if inspect.Architecture != "" && inspect.Os != "" {
 		platform := fmt.Sprintf("%s/%s", inspect.Os, inspect.Architecture)
-		b.logger.Debug("本地镜像架构: %s", platform)
+		b.logger.Debug("本地镜像架构: `%s`", platform)
 		return []string{platform}, nil
 	}
 
@@ -600,7 +637,7 @@ func (b *SDKBuilder) inspectImageArchitectures(ctx context.Context, imageName st
 
 // getRemoteImageArchitectures 从远程获取镜像架构信息
 func (b *SDKBuilder) getRemoteImageArchitectures(ctx context.Context, imageName string) ([]string, error) {
-	b.logger.Debug("从远程获取镜像架构信息: %s", imageName)
+	b.logger.Debug("从远程获取镜像架构信息: `%s`", imageName)
 
 	// 使用 docker manifest inspect 命令获取详细信息
 	cmd := exec.Command("docker", "manifest", "inspect", imageName)
@@ -659,11 +696,14 @@ func (b *SDKBuilder) parseManifestArchitectures(output []byte) ([]string, error)
 		architectures = append(architectures, platform)
 	}
 
+	// 去重和过滤无效架构
+	architectures = b.cleanArchitectures(architectures)
+
 	if len(architectures) == 0 {
 		return nil, fmt.Errorf("未找到架构信息")
 	}
 
-	b.logger.Debug("检测到镜像架构: %v", architectures)
+	b.logger.Debug("检测到镜像架构: `%v`", architectures)
 	return architectures, nil
 }
 
@@ -688,7 +728,7 @@ func (b *SDKBuilder) parseBuildxOutput(output []byte) ([]string, error) {
 		return nil, fmt.Errorf("未找到架构信息")
 	}
 
-	b.logger.Debug("检测到镜像架构: %v", architectures)
+	b.logger.Debug("检测到镜像架构: `%v`", architectures)
 	return architectures, nil
 }
 
@@ -701,8 +741,8 @@ func (b *SDKBuilder) chooseBuildStrategy(ctx context.Context, sourceImage, targe
 		requestedPlatforms[i] = strings.TrimSpace(platform)
 	}
 
-	b.logger.Info("上游镜像支持架构: %v", upstreamArchs)
-	b.logger.Info("请求构建架构: %v", requestedPlatforms)
+	b.logger.Info("上游镜像支持架构: `%v`", upstreamArchs)
+	b.logger.Info("请求构建架构: `%v`", requestedPlatforms)
 
 	// 检查上游镜像是否支持所有请求的架构
 	supportedPlatforms := b.filterSupportedPlatforms(requestedPlatforms, upstreamArchs)
@@ -717,7 +757,7 @@ func (b *SDKBuilder) chooseBuildStrategy(ctx context.Context, sourceImage, targe
 	// 如果支持的平台少于请求的平台，记录警告
 	if len(supportedPlatforms) < len(requestedPlatforms) {
 		unsupported := b.getUnsupportedPlatforms(requestedPlatforms, upstreamArchs)
-		b.logger.Warn("上游镜像不支持以下架构，将跳过: %v", unsupported)
+		b.logger.Warn("上游镜像不支持以下架构，将跳过: `%v`", unsupported)
 	}
 
 	actualPlatforms := strings.Join(supportedPlatforms, ",")
@@ -736,9 +776,12 @@ func (b *SDKBuilder) chooseBuildStrategy(ctx context.Context, sourceImage, targe
 func (b *SDKBuilder) generateArchitectureInfo(upstreamArchs, requestedPlatforms, supportedPlatforms []string) {
 	var info strings.Builder
 
-	info.WriteString(fmt.Sprintf("🏗️ **上游镜像架构**: %s\n", strings.Join(upstreamArchs, ", ")))
-	info.WriteString(fmt.Sprintf("📋 **请求构建架构**: %s\n", strings.Join(requestedPlatforms, ", ")))
-	info.WriteString(fmt.Sprintf("✅ **实际构建架构**: %s\n", strings.Join(supportedPlatforms, ", ")))
+	info.WriteString("🏗️ **架构信息**:\n")
+	info.WriteString("```\n")
+	info.WriteString(fmt.Sprintf("上游镜像架构: %s\n", strings.Join(upstreamArchs, ", ")))
+	info.WriteString(fmt.Sprintf("请求构建架构: %s\n", strings.Join(requestedPlatforms, ", ")))
+	info.WriteString(fmt.Sprintf("实际构建架构: %s\n", strings.Join(supportedPlatforms, ", ")))
+	info.WriteString("```\n")
 
 	if len(upstreamArchs) == 1 {
 		info.WriteString("ℹ️ **说明**: 上游镜像为单架构镜像，同步的也是单架构镜像\n")
@@ -749,7 +792,7 @@ func (b *SDKBuilder) generateArchitectureInfo(upstreamArchs, requestedPlatforms,
 	// 如果有不支持的架构，添加说明
 	if len(supportedPlatforms) < len(requestedPlatforms) {
 		unsupported := b.getUnsupportedPlatforms(requestedPlatforms, upstreamArchs)
-		info.WriteString(fmt.Sprintf("⚠️ **跳过架构**: %s (上游不支持)\n", strings.Join(unsupported, ", ")))
+		info.WriteString(fmt.Sprintf("⚠️ **跳过架构**: `%s` (上游不支持)\n", strings.Join(unsupported, ", ")))
 	}
 
 	b.lastArchInfo = info.String()
@@ -774,6 +817,27 @@ func (b *SDKBuilder) filterSupportedPlatforms(requested, upstream []string) []st
 	}
 
 	return supported
+}
+
+// cleanArchitectures 清理和去重架构列表
+func (b *SDKBuilder) cleanArchitectures(architectures []string) []string {
+	seen := make(map[string]bool)
+	var cleaned []string
+
+	for _, arch := range architectures {
+		// 跳过无效的架构
+		if strings.Contains(arch, "unknown") || arch == "" {
+			continue
+		}
+
+		// 去重
+		if !seen[arch] {
+			seen[arch] = true
+			cleaned = append(cleaned, arch)
+		}
+	}
+
+	return cleaned
 }
 
 // getUnsupportedPlatforms 获取不支持的平台
