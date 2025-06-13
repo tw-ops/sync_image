@@ -346,7 +346,7 @@ func (b *SDKBuilder) cleanupDockerfile() {
 	}
 }
 
-// checkBuildxEnvironment 检查 buildx 环境是否可用（复用 GitHub Actions 设置的环境）
+// checkBuildxEnvironment 检查并设置 buildx 环境以支持多平台构建
 func (b *SDKBuilder) checkBuildxEnvironment() error {
 	b.logger.Debug("检查 buildx 环境")
 
@@ -361,19 +361,83 @@ func (b *SDKBuilder) checkBuildxEnvironment() error {
 	output, err := lsCmd.Output()
 	if err != nil {
 		b.logger.Warn("无法列出 buildx 构建器: %v", err)
-		return nil // 不阻止继续执行
+		// 如果无法列出构建器，尝试创建一个
+		return b.ensureMultiPlatformBuilder()
 	}
 
 	outputStr := string(output)
 	b.logger.Debug("当前 buildx 构建器:\n```\n%s\n```", outputStr)
 
-	// 检查是否有活跃的构建器
-	if strings.Contains(outputStr, "*") {
-		b.logger.Info("发现活跃的 buildx 构建器，将复用 GitHub Actions 环境")
-	} else {
-		b.logger.Info("使用默认 buildx 环境")
+	// 检查是否有支持多平台的活跃构建器
+	if b.hasMultiPlatformBuilder(outputStr) {
+		b.logger.Info("发现支持多平台的 buildx 构建器")
+		return nil
 	}
 
+	// 如果没有合适的构建器，创建一个
+	b.logger.Info("当前构建器不支持多平台，创建新的构建器")
+	return b.ensureMultiPlatformBuilder()
+}
+
+// hasMultiPlatformBuilder 检查是否有支持多平台的构建器
+func (b *SDKBuilder) hasMultiPlatformBuilder(output string) bool {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		// 查找活跃的构建器（带*标记）
+		if strings.Contains(line, "*") {
+			// 检查是否是 docker-container 或 kubernetes 驱动
+			if strings.Contains(line, "docker-container") || strings.Contains(line, "kubernetes") {
+				b.logger.Debug("发现活跃的多平台构建器: %s", strings.TrimSpace(line))
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ensureMultiPlatformBuilder 确保有支持多平台的构建器
+func (b *SDKBuilder) ensureMultiPlatformBuilder() error {
+	b.logger.Info("创建支持多平台的 buildx 构建器")
+
+	// 创建新的构建器
+	builderName := "multiplatform-builder"
+	createCmd := exec.Command("docker", "buildx", "create",
+		"--name", builderName,
+		"--driver", "docker-container",
+		"--use")
+
+	var createOut bytes.Buffer
+	createCmd.Stdout = &createOut
+	createCmd.Stderr = &createOut
+
+	if err := createCmd.Run(); err != nil {
+		createOutput := createOut.String()
+		// 如果构建器已存在，尝试使用它
+		if strings.Contains(createOutput, "already exists") {
+			b.logger.Debug("构建器已存在，尝试使用现有构建器")
+			useCmd := exec.Command("docker", "buildx", "use", builderName)
+			if useErr := useCmd.Run(); useErr != nil {
+				return fmt.Errorf("使用现有构建器失败: %w", useErr)
+			}
+		} else {
+			b.logger.Error("创建构建器失败，详细输出:\n```\n%s\n```", createOutput)
+			return fmt.Errorf("创建 buildx 构建器失败: %w", err)
+		}
+	}
+
+	// 启动构建器
+	b.logger.Debug("启动 buildx 构建器")
+	bootstrapCmd := exec.Command("docker", "buildx", "inspect", "--bootstrap")
+	var bootstrapOut bytes.Buffer
+	bootstrapCmd.Stdout = &bootstrapOut
+	bootstrapCmd.Stderr = &bootstrapOut
+
+	if err := bootstrapCmd.Run(); err != nil {
+		bootstrapOutput := bootstrapOut.String()
+		b.logger.Warn("启动构建器失败，但继续尝试构建: %v\n输出:\n```\n%s\n```", err, bootstrapOutput)
+	}
+
+	b.logger.Info("多平台 buildx 构建器设置完成")
 	return nil
 }
 

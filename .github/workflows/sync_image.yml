@@ -27,6 +27,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: image=moby/buildkit:v0.9.3
+          install: true
 
       - name: 拉取同步镜像
         run: |
