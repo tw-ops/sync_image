@@ -77,8 +77,13 @@ jobs:
           echo "  Docker Registry: ${DOCKER_REGISTRY}"
           echo "  Docker Namespace: ${DOCKER_NAMESPACE}"
 
+          # 获取 Docker socket 的组ID
+          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+          echo "Docker socket GID: $DOCKER_GID"
+
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            --group-add $DOCKER_GID \
             -e AK="${AK}" \
             -e SK="${SK}" \
             -e GITHUB_TOKEN="${GITHUB_TOKEN}" \

@@ -39,15 +39,83 @@ type SDKBuilder struct {
 	lastArchInfo string // 最后一次构建的架构信息
 }
 
+// createDockerClient 创建 Docker 客户端，支持多种连接方式
+func createDockerClient(log logger.Logger) (*client.Client, error) {
+	// 方式1: 使用环境变量（默认方式）
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err == nil {
+		// 测试连接
+		ctx := context.Background()
+		_, pingErr := cli.Ping(ctx)
+		if pingErr == nil {
+			log.Debug("使用环境变量成功创建 Docker 客户端")
+			return cli, nil
+		}
+		log.Warn("Docker 客户端创建成功但连接测试失败: %v", pingErr)
+		cli.Close()
+	}
+
+	log.Warn("使用环境变量创建 Docker 客户端失败: %v", err)
+
+	// 方式2: 尝试使用默认的 Unix socket
+	cli, err = client.NewClientWithOpts(
+		client.WithHost("unix:///var/run/docker.sock"),
+		client.WithAPIVersionNegotiation(),
+	)
+	if err == nil {
+		ctx := context.Background()
+		_, pingErr := cli.Ping(ctx)
+		if pingErr == nil {
+			log.Debug("使用 Unix socket 成功创建 Docker 客户端")
+			return cli, nil
+		}
+		log.Warn("Unix socket Docker 客户端创建成功但连接测试失败: %v", pingErr)
+		cli.Close()
+	}
+
+	log.Warn("使用 Unix socket 创建 Docker 客户端失败: %v", err)
+
+	// 方式3: 尝试使用 TCP 连接（如果设置了 DOCKER_HOST）
+	if dockerHost := os.Getenv("DOCKER_HOST"); dockerHost != "" {
+		cli, err = client.NewClientWithOpts(
+			client.WithHost(dockerHost),
+			client.WithAPIVersionNegotiation(),
+		)
+		if err == nil {
+			ctx := context.Background()
+			_, pingErr := cli.Ping(ctx)
+			if pingErr == nil {
+				log.Debug("使用 DOCKER_HOST 成功创建 Docker 客户端")
+				return cli, nil
+			}
+			log.Warn("DOCKER_HOST Docker 客户端创建成功但连接测试失败: %v", pingErr)
+			cli.Close()
+		}
+		log.Warn("使用 DOCKER_HOST 创建 Docker 客户端失败: %v", err)
+	}
+
+	return nil, fmt.Errorf("所有 Docker 连接方式都失败")
+}
+
 // NewBuilder 创建新的 Docker 构建器（使用 SDK 版本）
 func NewBuilder(cfg *config.DockerConfig, log logger.Logger) Builder {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := createDockerClient(log)
 	if err != nil {
 		log.Error("创建 Docker 客户端失败，程序无法继续: %v", err)
+
+		// 提供更详细的错误信息和解决建议
+		log.Error("Docker 连接失败解决建议:")
+		log.Error("1. 确保 Docker daemon 正在运行")
+		log.Error("2. 确保当前用户在 docker 组中")
+		log.Error("3. 检查 Docker socket 权限: ls -la /var/run/docker.sock")
+		log.Error("4. 在容器中运行时，确保正确挂载 Docker socket 并设置用户组")
+		log.Error("5. 检查 DOCKER_HOST 环境变量是否正确设置")
+
 		panic(fmt.Sprintf("Docker SDK 不可用: %v", err))
 	}
 
 	log.Info("使用 Docker SDK 构建器")
+	log.Info("Docker 连接测试成功")
 	return &SDKBuilder{
 		client: cli,
 		config: cfg,
