@@ -57,15 +57,10 @@ jobs:
           echo "  Docker Registry: ${DOCKER_REGISTRY}"
           echo "  Docker Namespace: ${DOCKER_NAMESPACE}"
 
-          # 获取 Docker socket 的组ID
-          DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
-          echo "Docker socket GID: $DOCKER_GID"
-
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v /tmp/.buildx:/tmp/.buildx \
             -v ~/.docker:/root/.docker \
-            --group-add $DOCKER_GID \
             --privileged \
             -e AK="${AK}" \
             -e SK="${SK}" \

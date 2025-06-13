@@ -6,14 +6,14 @@ mirror_img=$(echo ${k8s_img}|
         uniq)
 
 if [ -x "$(command -v docker)" ]; then
-  sudo docker pull ${mirror_img}
-  sudo docker tag ${mirror_img} ${k8s_img}
+  docker pull ${mirror_img}
+  docker tag ${mirror_img} ${k8s_img}
   exit 0
 fi
 
 if [ -x "$(command -v ctr)" ]; then
-  sudo ctr -n k8s.io image pull docker.io/${mirror_img}
-  sudo ctr -n k8s.io image tag docker.io/${mirror_img} ${k8s_img}
+  ctr -n k8s.io image pull docker.io/${mirror_img}
+  ctr -n k8s.io image tag docker.io/${mirror_img} ${k8s_img}
   exit 0
 fi
 

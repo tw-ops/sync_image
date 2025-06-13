@@ -61,17 +61,10 @@ RUN chmod +x scripts/pull-k8s-image.sh scripts/entrypoint.sh
 ENV DOCKER_BUILDKIT=1
 ENV DOCKER_CLI_EXPERIMENTAL=enabled
 
-# 创建非 root 用户（与 GitHub Actions runner 兼容）
-RUN groupadd -g 1001 appgroup && \
-    useradd -u 1001 -g appgroup -m appuser
+# 确保 /tmp/.buildx 目录存在并有正确权限
+RUN mkdir -p /tmp/.buildx && chmod 755 /tmp/.buildx
 
-# 设置权限
-RUN chown -R appuser:appgroup /app
-
-# 切换到非 root 用户
-USER appuser
-
-# 设置入口点
+# 设置入口点（以 root 用户运行）
 ENTRYPOINT ["./sync-image"]
 
 # 默认命令参数
