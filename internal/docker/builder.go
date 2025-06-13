@@ -39,62 +39,23 @@ type SDKBuilder struct {
 	lastArchInfo string // 最后一次构建的架构信息
 }
 
-// createDockerClient 创建 Docker 客户端，支持多种连接方式
+// createDockerClient 创建 Docker 客户端
 func createDockerClient(log logger.Logger) (*client.Client, error) {
-	// 方式1: 使用环境变量（默认方式）
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err == nil {
-		// 测试连接
-		ctx := context.Background()
-		_, pingErr := cli.Ping(ctx)
-		if pingErr == nil {
-			log.Debug("使用环境变量成功创建 Docker 客户端")
-			return cli, nil
-		}
-		log.Warn("Docker 客户端创建成功但连接测试失败: %v", pingErr)
+	if err != nil {
+		return nil, fmt.Errorf("创建 Docker 客户端失败: %w", err)
+	}
+
+	// 测试连接
+	ctx := context.Background()
+	_, pingErr := cli.Ping(ctx)
+	if pingErr != nil {
 		cli.Close()
+		return nil, fmt.Errorf("Docker 连接测试失败: %w", pingErr)
 	}
 
-	log.Warn("使用环境变量创建 Docker 客户端失败: %v", err)
-
-	// 方式2: 尝试使用默认的 Unix socket
-	cli, err = client.NewClientWithOpts(
-		client.WithHost("unix:///var/run/docker.sock"),
-		client.WithAPIVersionNegotiation(),
-	)
-	if err == nil {
-		ctx := context.Background()
-		_, pingErr := cli.Ping(ctx)
-		if pingErr == nil {
-			log.Debug("使用 Unix socket 成功创建 Docker 客户端")
-			return cli, nil
-		}
-		log.Warn("Unix socket Docker 客户端创建成功但连接测试失败: %v", pingErr)
-		cli.Close()
-	}
-
-	log.Warn("使用 Unix socket 创建 Docker 客户端失败: %v", err)
-
-	// 方式3: 尝试使用 TCP 连接（如果设置了 DOCKER_HOST）
-	if dockerHost := os.Getenv("DOCKER_HOST"); dockerHost != "" {
-		cli, err = client.NewClientWithOpts(
-			client.WithHost(dockerHost),
-			client.WithAPIVersionNegotiation(),
-		)
-		if err == nil {
-			ctx := context.Background()
-			_, pingErr := cli.Ping(ctx)
-			if pingErr == nil {
-				log.Debug("使用 DOCKER_HOST 成功创建 Docker 客户端")
-				return cli, nil
-			}
-			log.Warn("DOCKER_HOST Docker 客户端创建成功但连接测试失败: %v", pingErr)
-			cli.Close()
-		}
-		log.Warn("使用 DOCKER_HOST 创建 Docker 客户端失败: %v", err)
-	}
-
-	return nil, fmt.Errorf("所有 Docker 连接方式都失败")
+	log.Debug("Docker 客户端创建成功")
+	return cli, nil
 }
 
 // NewBuilder 创建新的 Docker 构建器（使用 SDK 版本）
@@ -125,22 +86,20 @@ func NewBuilder(cfg *config.DockerConfig, log logger.Logger) Builder {
 
 // Login 登录到 Docker 注册表
 func (b *SDKBuilder) Login(ctx context.Context) error {
-	b.logger.Debug("使用 Docker SDK 登录到注册表: %s", b.config.Registry)
-
-	authConfig := registry.AuthConfig{
-		Username:      b.config.Username,
-		Password:      b.config.Password,
-		ServerAddress: b.config.Registry,
+	if !b.hasCredentials() {
+		b.logger.Debug("跳过 Docker 登录（无凭据配置）")
+		return nil
 	}
 
-	if b.config.Registry == "" {
-		authConfig.ServerAddress = "https://index.docker.io/v1/"
-	}
+	registryAddr := b.getRegistryAddress()
+	b.logger.Debug("使用 Docker SDK 登录到注册表: `%s`", registryAddr)
+
+	authConfig := b.createAuthConfig()
 
 	_, err := b.client.RegistryLogin(ctx, authConfig)
 	if err != nil {
 		return errors.NewDockerError("Docker SDK 登录失败", err).
-			WithContext("registry", b.config.Registry).
+			WithContext("registry", registryAddr).
 			WithContext("username", b.config.Username)
 	}
 
@@ -151,6 +110,11 @@ func (b *SDKBuilder) Login(ctx context.Context) error {
 // BuildAndPush 构建并推送镜像
 func (b *SDKBuilder) BuildAndPush(ctx context.Context, sourceImage, targetImage, platform string) error {
 	b.logger.Info("使用 Docker SDK 开始构建镜像: %s -> %s", sourceImage, targetImage)
+
+	// 首先确保 Docker 登录
+	if err := b.ensureDockerLogin(ctx); err != nil {
+		return fmt.Errorf("Docker 登录失败: %w", err)
+	}
 
 	// 检测上游镜像支持的架构
 	upstreamArchs, err := b.inspectImageArchitectures(ctx, sourceImage)
@@ -177,14 +141,9 @@ func (b *SDKBuilder) buildWithBuildx(ctx context.Context, sourceImage, targetIma
 	}
 	defer b.cleanupDockerfile()
 
-	// 设置 buildx 构建器
-	if err := b.setupBuildxBuilder(); err != nil {
-		return fmt.Errorf("设置 buildx 构建器失败: %w", err)
-	}
-
-	// 确保 buildx 环境下的 Docker 登录
-	if err := b.ensureBuildxLogin(); err != nil {
-		return fmt.Errorf("buildx 环境登录失败: %w", err)
+	// 检查 buildx 环境是否可用
+	if err := b.checkBuildxEnvironment(); err != nil {
+		return fmt.Errorf("buildx 环境检查失败: %w", err)
 	}
 
 	// 使用 buildx 命令进行多架构构建
@@ -301,15 +260,7 @@ func (b *SDKBuilder) pushImage(ctx context.Context, imageName string) error {
 	b.logger.Debug("推送镜像: `%s`", imageName)
 
 	// 创建认证配置
-	authConfig := registry.AuthConfig{
-		Username:      b.config.Username,
-		Password:      b.config.Password,
-		ServerAddress: b.config.Registry,
-	}
-
-	if b.config.Registry == "" {
-		authConfig.ServerAddress = "https://index.docker.io/v1/"
-	}
+	authConfig := b.createAuthConfig()
 
 	// 编码认证信息
 	authConfigBytes, err := json.Marshal(authConfig)
@@ -395,148 +346,81 @@ func (b *SDKBuilder) cleanupDockerfile() {
 	}
 }
 
-// setupBuildxBuilder 设置 buildx 构建器以支持多平台构建
-func (b *SDKBuilder) setupBuildxBuilder() error {
-	b.logger.Debug("设置 buildx 构建器")
+// checkBuildxEnvironment 检查 buildx 环境是否可用（复用 GitHub Actions 设置的环境）
+func (b *SDKBuilder) checkBuildxEnvironment() error {
+	b.logger.Debug("检查 buildx 环境")
 
-	// 检查是否已有可用的构建器
-	checkCmd := exec.Command("docker", "buildx", "ls")
-	output, err := checkCmd.Output()
+	// 检查 buildx 是否可用
+	checkCmd := exec.Command("docker", "buildx", "version")
+	if err := checkCmd.Run(); err != nil {
+		return fmt.Errorf("buildx 不可用: %w", err)
+	}
+
+	// 检查当前构建器
+	lsCmd := exec.Command("docker", "buildx", "ls")
+	output, err := lsCmd.Output()
 	if err != nil {
-		b.logger.Warn("检查 buildx 构建器失败: %v", err)
-	} else {
-		outputStr := string(output)
-		b.logger.Debug("当前 buildx 构建器列表:\n```\n%s\n```", outputStr)
-
-		// 检查是否已有支持多平台的构建器
-		lines := strings.Split(outputStr, "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "*") && (strings.Contains(line, "docker-container") || strings.Contains(line, "kubernetes")) {
-				b.logger.Debug("发现可用的多平台构建器")
-				return nil
-			}
-		}
-	}
-
-	// 尝试多种构建器创建策略
-	builderName := "multiarch-builder"
-
-	// 策略1: 尝试创建 docker-container 驱动的构建器
-	if err := b.createContainerBuilder(builderName); err == nil {
-		return nil
-	}
-
-	// 策略2: 尝试使用现有的默认构建器并切换驱动
-	if err := b.useDefaultBuilder(); err == nil {
-		return nil
-	}
-
-	// 策略3: 强制创建新的构建器
-	return b.forceCreateBuilder(builderName)
-}
-
-// createContainerBuilder 创建 docker-container 驱动的构建器
-func (b *SDKBuilder) createContainerBuilder(builderName string) error {
-	b.logger.Info("创建 docker-container 构建器: `%s`", builderName)
-
-	// 先尝试删除可能存在的同名构建器
-	rmCmd := exec.Command("docker", "buildx", "rm", builderName)
-	rmCmd.Run() // 忽略错误
-
-	// 创建构建器
-	createCmd := exec.Command("docker", "buildx", "create",
-		"--name", builderName,
-		"--driver", "docker-container",
-		"--use",
-		"--bootstrap")
-
-	var createOut bytes.Buffer
-	createCmd.Stdout = &createOut
-	createCmd.Stderr = &createOut
-
-	if err := createCmd.Run(); err != nil {
-		createOutput := createOut.String()
-		b.logger.Error("创建 docker-container 构建器失败，详细输出:\n```\n%s\n```", createOutput)
-		return fmt.Errorf("创建 docker-container 构建器失败: %w", err)
-	}
-
-	b.logger.Info("成功创建 docker-container 构建器")
-	return nil
-}
-
-// useDefaultBuilder 尝试使用默认构建器
-func (b *SDKBuilder) useDefaultBuilder() error {
-	b.logger.Debug("尝试使用默认构建器")
-
-	// 使用默认构建器
-	useCmd := exec.Command("docker", "buildx", "use", "default")
-	if err := useCmd.Run(); err != nil {
-		b.logger.Warn("使用默认构建器失败: %v", err)
-		return err
-	}
-
-	// 检查默认构建器是否支持多平台
-	inspectCmd := exec.Command("docker", "buildx", "inspect")
-	output, err := inspectCmd.Output()
-	if err != nil {
-		return fmt.Errorf("检查默认构建器失败: %w", err)
+		b.logger.Warn("无法列出 buildx 构建器: %v", err)
+		return nil // 不阻止继续执行
 	}
 
 	outputStr := string(output)
-	if strings.Contains(outputStr, "linux/amd64") && strings.Contains(outputStr, "linux/arm64") {
-		b.logger.Info("默认构建器支持多平台构建")
-		return nil
+	b.logger.Debug("当前 buildx 构建器:\n```\n%s\n```", outputStr)
+
+	// 检查是否有活跃的构建器
+	if strings.Contains(outputStr, "*") {
+		b.logger.Info("发现活跃的 buildx 构建器，将复用 GitHub Actions 环境")
+	} else {
+		b.logger.Info("使用默认 buildx 环境")
 	}
 
-	return fmt.Errorf("默认构建器不支持多平台构建")
-}
-
-// forceCreateBuilder 强制创建新构建器
-func (b *SDKBuilder) forceCreateBuilder(builderName string) error {
-	b.logger.Warn("强制创建新构建器")
-
-	// 创建最简单的构建器
-	createCmd := exec.Command("docker", "buildx", "create", "--use")
-	var createOut bytes.Buffer
-	createCmd.Stdout = &createOut
-	createCmd.Stderr = &createOut
-
-	if err := createCmd.Run(); err != nil {
-		createOutput := createOut.String()
-		b.logger.Error("强制创建构建器失败，详细输出:\n```\n%s\n```", createOutput)
-		return fmt.Errorf("强制创建构建器失败: %w", err)
-	}
-
-	b.logger.Info("成功创建构建器")
 	return nil
 }
 
-// ensureBuildxLogin 确保 buildx 环境下的 Docker 登录
-func (b *SDKBuilder) ensureBuildxLogin() error {
-	b.logger.Debug("确保 buildx 环境下的 Docker 登录")
-
-	// 使用 docker login 命令确保在 buildx 环境中也能访问私有仓库
-	if b.config.Registry != "" && b.config.Username != "" && b.config.Password != "" {
-		b.logger.Info("为 buildx 环境配置 Docker 登录: `%s`", b.config.Registry)
-
-		loginCmd := exec.Command("docker", "login", b.config.Registry, "-u", b.config.Username, "--password-stdin")
-		loginCmd.Stdin = strings.NewReader(b.config.Password)
-
-		var loginOut bytes.Buffer
-		loginCmd.Stdout = &loginOut
-		loginCmd.Stderr = &loginOut
-
-		if err := loginCmd.Run(); err != nil {
-			loginOutput := loginOut.String()
-			b.logger.Error("buildx 环境 Docker 登录失败:\n```\n%s\n```", loginOutput)
-			return fmt.Errorf("buildx 环境 Docker 登录失败: %w", err)
-		}
-
-		b.logger.Info("buildx 环境 Docker 登录成功")
-	} else {
-		b.logger.Debug("跳过 buildx 环境 Docker 登录（无凭据配置）")
+// ensureDockerLogin 确保 Docker 登录（统一的登录方法）
+func (b *SDKBuilder) ensureDockerLogin(ctx context.Context) error {
+	if !b.hasCredentials() {
+		b.logger.Debug("跳过 Docker 登录（无凭据配置）")
+		return nil
 	}
 
+	registryAddr := b.getRegistryAddress()
+
+	// 1. 首先进行 SDK 登录
+	if err := b.Login(ctx); err != nil {
+		return fmt.Errorf("Docker SDK 登录失败: %w", err)
+	}
+
+	// 2. 然后进行 CLI 登录（用于 buildx）
+	return b.ensureCLILogin(registryAddr)
+}
+
+// ensureCLILogin 确保 CLI 环境下的 Docker 登录（用于 buildx）
+func (b *SDKBuilder) ensureCLILogin(registryAddr string) error {
+	b.logger.Debug("确保 CLI 环境下的 Docker 登录: `%s`", registryAddr)
+
+	var loginCmd *exec.Cmd
+	if b.config.Registry == "" {
+		// Docker Hub 登录
+		loginCmd = exec.Command("docker", "login", "-u", b.config.Username, "--password-stdin")
+	} else {
+		// 私有仓库登录
+		loginCmd = exec.Command("docker", "login", b.config.Registry, "-u", b.config.Username, "--password-stdin")
+	}
+
+	loginCmd.Stdin = strings.NewReader(b.config.Password)
+
+	var loginOut bytes.Buffer
+	loginCmd.Stdout = &loginOut
+	loginCmd.Stderr = &loginOut
+
+	if err := loginCmd.Run(); err != nil {
+		loginOutput := loginOut.String()
+		b.logger.Error("CLI 环境 Docker 登录失败:\n```\n%s\n```", loginOutput)
+		return fmt.Errorf("CLI 环境 Docker 登录失败: %w", err)
+	}
+
+	b.logger.Debug("CLI 环境 Docker 登录成功")
 	return nil
 }
 
@@ -582,9 +466,6 @@ func (b *SDKBuilder) execBuildxCommand(targetImage, platforms string) error {
 func (b *SDKBuilder) Cleanup() error {
 	b.logger.Debug("清理 Docker SDK 资源")
 
-	// 清理 buildx 构建器（可选，因为构建器可以重用）
-	b.cleanupBuildxBuilder()
-
 	if b.client != nil {
 		if err := b.client.Close(); err != nil {
 			b.logger.Warn("关闭 Docker 客户端失败: %v", err)
@@ -595,43 +476,11 @@ func (b *SDKBuilder) Cleanup() error {
 	return nil
 }
 
-// cleanupBuildxBuilder 清理 buildx 构建器（可选）
-func (b *SDKBuilder) cleanupBuildxBuilder() {
-	// 注意：通常不需要删除构建器，因为它们可以重用
-	// 这里只是记录日志，实际清理可以根据需要启用
-	b.logger.Debug("buildx 构建器保留以供重用")
-
-	// 如果需要强制清理，可以取消注释以下代码：
-	/*
-		builderName := "multiarch-builder"
-		b.logger.Debug("清理 buildx 构建器: %s", builderName)
-
-		rmCmd := exec.Command("docker", "buildx", "rm", builderName)
-		if err := rmCmd.Run(); err != nil {
-			b.logger.Warn("清理 buildx 构建器失败: %v", err)
-		}
-	*/
-}
-
 // inspectImageArchitectures 检测镜像支持的架构
 func (b *SDKBuilder) inspectImageArchitectures(ctx context.Context, imageName string) ([]string, error) {
 	b.logger.Debug("检测镜像架构: `%s`", imageName)
 
-	// 首先尝试拉取镜像的 manifest
-	inspect, _, err := b.client.ImageInspectWithRaw(ctx, imageName)
-	if err != nil {
-		// 如果本地没有镜像，尝试从远程获取信息
-		return b.getRemoteImageArchitectures(ctx, imageName)
-	}
-
-	// 从本地镜像获取架构信息
-	if inspect.Architecture != "" && inspect.Os != "" {
-		platform := fmt.Sprintf("%s/%s", inspect.Os, inspect.Architecture)
-		b.logger.Debug("本地镜像架构: `%s`", platform)
-		return []string{platform}, nil
-	}
-
-	// 如果本地信息不完整，尝试从远程获取
+	// 直接使用 docker manifest inspect 获取架构信息
 	return b.getRemoteImageArchitectures(ctx, imageName)
 }
 
@@ -643,23 +492,11 @@ func (b *SDKBuilder) getRemoteImageArchitectures(ctx context.Context, imageName 
 	cmd := exec.Command("docker", "manifest", "inspect", imageName)
 	output, err := cmd.Output()
 	if err != nil {
-		b.logger.Debug("manifest inspect 失败，尝试 buildx imagetools: %v", err)
-		return b.getBuildxImageArchitectures(ctx, imageName)
+		return nil, fmt.Errorf("无法获取镜像架构信息: %w", err)
 	}
 
 	// 解析 manifest 信息
 	return b.parseManifestArchitectures(output)
-}
-
-// getBuildxImageArchitectures 使用 buildx imagetools 获取架构信息
-func (b *SDKBuilder) getBuildxImageArchitectures(ctx context.Context, imageName string) ([]string, error) {
-	cmd := exec.Command("docker", "buildx", "imagetools", "inspect", imageName)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("无法获取镜像架构信息: %w", err)
-	}
-
-	return b.parseBuildxOutput(output)
 }
 
 // parseManifestArchitectures 解析 manifest 输出获取架构信息
@@ -698,31 +535,6 @@ func (b *SDKBuilder) parseManifestArchitectures(output []byte) ([]string, error)
 
 	// 去重和过滤无效架构
 	architectures = b.cleanArchitectures(architectures)
-
-	if len(architectures) == 0 {
-		return nil, fmt.Errorf("未找到架构信息")
-	}
-
-	b.logger.Debug("检测到镜像架构: `%v`", architectures)
-	return architectures, nil
-}
-
-// parseBuildxOutput 解析 buildx imagetools 输出
-func (b *SDKBuilder) parseBuildxOutput(output []byte) ([]string, error) {
-	lines := strings.Split(string(output), "\n")
-	var architectures []string
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, "Platform:") {
-			// 提取平台信息，格式如: "Platform: linux/amd64"
-			parts := strings.Split(line, ":")
-			if len(parts) >= 2 {
-				platform := strings.TrimSpace(parts[1])
-				architectures = append(architectures, platform)
-			}
-		}
-	}
 
 	if len(architectures) == 0 {
 		return nil, fmt.Errorf("未找到架构信息")
@@ -838,6 +650,34 @@ func (b *SDKBuilder) cleanArchitectures(architectures []string) []string {
 	}
 
 	return cleaned
+}
+
+// createAuthConfig 创建统一的认证配置
+func (b *SDKBuilder) createAuthConfig() registry.AuthConfig {
+	authConfig := registry.AuthConfig{
+		Username:      b.config.Username,
+		Password:      b.config.Password,
+		ServerAddress: b.config.Registry,
+	}
+
+	if b.config.Registry == "" {
+		authConfig.ServerAddress = "https://index.docker.io/v1/"
+	}
+
+	return authConfig
+}
+
+// hasCredentials 检查是否有登录凭据
+func (b *SDKBuilder) hasCredentials() bool {
+	return b.config.Username != "" && b.config.Password != ""
+}
+
+// getRegistryAddress 获取注册表地址
+func (b *SDKBuilder) getRegistryAddress() string {
+	if b.config.Registry == "" {
+		return "Docker Hub"
+	}
+	return b.config.Registry
 }
 
 // getUnsupportedPlatforms 获取不支持的平台

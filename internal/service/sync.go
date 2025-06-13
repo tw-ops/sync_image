@@ -132,12 +132,7 @@ func (s *DefaultSyncService) syncImage(ctx context.Context, originalImage, platf
 
 	s.logger.Info("镜像名称转换完成: %s -> %s", sourceImage, targetImage)
 
-	// Docker 登录
-	if err := s.dockerBuilder.Login(ctx); err != nil {
-		return sourceImage, targetImage, fmt.Errorf("Docker 登录失败: %w", err)
-	}
-
-	// 构建并推送镜像（现在会自动检测上游架构）
+	// 构建并推送镜像（内部会自动处理登录和架构检测）
 	if err := s.dockerBuilder.BuildAndPush(ctx, sourceImage, targetImage, platform); err != nil {
 		return sourceImage, targetImage, fmt.Errorf("Docker 构建推送失败: %w", err)
 	}
