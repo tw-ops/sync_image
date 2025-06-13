@@ -83,7 +83,9 @@ jobs:
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/.buildx:/tmp/.buildx \
             --group-add $DOCKER_GID \
+            --privileged \
             -e AK="${AK}" \
             -e SK="${SK}" \
             -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
@@ -94,6 +96,8 @@ jobs:
             -e DOCKER_NAMESPACE="${DOCKER_NAMESPACE}" \
             -e DOCKER_USER="${DOCKER_USER}" \
             -e DOCKER_PASSWORD="${DOCKER_PASSWORD}" \
+            -e DOCKER_BUILDKIT=1 \
+            -e DOCKER_CLI_EXPERIMENTAL=enabled \
             $IMAGE \
             --config=/app/configs/rules.yaml
 

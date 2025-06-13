@@ -177,6 +177,11 @@ func (b *SDKBuilder) buildWithBuildx(ctx context.Context, sourceImage, targetIma
 	}
 	defer b.cleanupDockerfile()
 
+	// 设置 buildx 构建器
+	if err := b.setupBuildxBuilder(); err != nil {
+		return fmt.Errorf("设置 buildx 构建器失败: %w", err)
+	}
+
 	// 使用 buildx 命令进行多架构构建
 	return b.execBuildxCommand(targetImage, platforms)
 }
@@ -385,6 +390,121 @@ func (b *SDKBuilder) cleanupDockerfile() {
 	}
 }
 
+// setupBuildxBuilder 设置 buildx 构建器以支持多平台构建
+func (b *SDKBuilder) setupBuildxBuilder() error {
+	b.logger.Debug("设置 buildx 构建器")
+
+	// 检查是否已有可用的构建器
+	checkCmd := exec.Command("docker", "buildx", "ls")
+	output, err := checkCmd.Output()
+	if err != nil {
+		b.logger.Warn("检查 buildx 构建器失败: %v", err)
+	} else {
+		outputStr := string(output)
+		b.logger.Debug("当前 buildx 构建器列表:\n%s", outputStr)
+
+		// 检查是否已有支持多平台的构建器
+		lines := strings.Split(outputStr, "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "*") && (strings.Contains(line, "docker-container") || strings.Contains(line, "kubernetes")) {
+				b.logger.Debug("发现可用的多平台构建器")
+				return nil
+			}
+		}
+	}
+
+	// 尝试多种构建器创建策略
+	builderName := "multiarch-builder"
+
+	// 策略1: 尝试创建 docker-container 驱动的构建器
+	if err := b.createContainerBuilder(builderName); err == nil {
+		return nil
+	}
+
+	// 策略2: 尝试使用现有的默认构建器并切换驱动
+	if err := b.useDefaultBuilder(); err == nil {
+		return nil
+	}
+
+	// 策略3: 强制创建新的构建器
+	return b.forceCreateBuilder(builderName)
+}
+
+// createContainerBuilder 创建 docker-container 驱动的构建器
+func (b *SDKBuilder) createContainerBuilder(builderName string) error {
+	b.logger.Info("创建 docker-container 构建器: %s", builderName)
+
+	// 先尝试删除可能存在的同名构建器
+	rmCmd := exec.Command("docker", "buildx", "rm", builderName)
+	rmCmd.Run() // 忽略错误
+
+	// 创建构建器
+	createCmd := exec.Command("docker", "buildx", "create",
+		"--name", builderName,
+		"--driver", "docker-container",
+		"--use",
+		"--bootstrap")
+
+	var createOut bytes.Buffer
+	createCmd.Stdout = &createOut
+	createCmd.Stderr = &createOut
+
+	if err := createCmd.Run(); err != nil {
+		createOutput := createOut.String()
+		b.logger.Warn("创建 docker-container 构建器失败: %v\n输出: %s", err, createOutput)
+		return err
+	}
+
+	b.logger.Info("成功创建 docker-container 构建器")
+	return nil
+}
+
+// useDefaultBuilder 尝试使用默认构建器
+func (b *SDKBuilder) useDefaultBuilder() error {
+	b.logger.Debug("尝试使用默认构建器")
+
+	// 使用默认构建器
+	useCmd := exec.Command("docker", "buildx", "use", "default")
+	if err := useCmd.Run(); err != nil {
+		b.logger.Warn("使用默认构建器失败: %v", err)
+		return err
+	}
+
+	// 检查默认构建器是否支持多平台
+	inspectCmd := exec.Command("docker", "buildx", "inspect")
+	output, err := inspectCmd.Output()
+	if err != nil {
+		return fmt.Errorf("检查默认构建器失败: %w", err)
+	}
+
+	outputStr := string(output)
+	if strings.Contains(outputStr, "linux/amd64") && strings.Contains(outputStr, "linux/arm64") {
+		b.logger.Info("默认构建器支持多平台构建")
+		return nil
+	}
+
+	return fmt.Errorf("默认构建器不支持多平台构建")
+}
+
+// forceCreateBuilder 强制创建新构建器
+func (b *SDKBuilder) forceCreateBuilder(builderName string) error {
+	b.logger.Warn("强制创建新构建器")
+
+	// 创建最简单的构建器
+	createCmd := exec.Command("docker", "buildx", "create", "--use")
+	var createOut bytes.Buffer
+	createCmd.Stdout = &createOut
+	createCmd.Stderr = &createOut
+
+	if err := createCmd.Run(); err != nil {
+		createOutput := createOut.String()
+		return fmt.Errorf("强制创建构建器失败: %w\n输出: %s", err, createOutput)
+	}
+
+	b.logger.Info("成功创建构建器")
+	return nil
+}
+
 // execBuildxCommand 执行 buildx 命令
 func (b *SDKBuilder) execBuildxCommand(targetImage, platforms string) error {
 	// 构建参数
@@ -425,6 +545,9 @@ func (b *SDKBuilder) execBuildxCommand(targetImage, platforms string) error {
 func (b *SDKBuilder) Cleanup() error {
 	b.logger.Debug("清理 Docker SDK 资源")
 
+	// 清理 buildx 构建器（可选，因为构建器可以重用）
+	b.cleanupBuildxBuilder()
+
 	if b.client != nil {
 		if err := b.client.Close(); err != nil {
 			b.logger.Warn("关闭 Docker 客户端失败: %v", err)
@@ -433,6 +556,24 @@ func (b *SDKBuilder) Cleanup() error {
 	}
 
 	return nil
+}
+
+// cleanupBuildxBuilder 清理 buildx 构建器（可选）
+func (b *SDKBuilder) cleanupBuildxBuilder() {
+	// 注意：通常不需要删除构建器，因为它们可以重用
+	// 这里只是记录日志，实际清理可以根据需要启用
+	b.logger.Debug("buildx 构建器保留以供重用")
+
+	// 如果需要强制清理，可以取消注释以下代码：
+	/*
+		builderName := "multiarch-builder"
+		b.logger.Debug("清理 buildx 构建器: %s", builderName)
+
+		rmCmd := exec.Command("docker", "buildx", "rm", builderName)
+		if err := rmCmd.Run(); err != nil {
+			b.logger.Warn("清理 buildx 构建器失败: %v", err)
+		}
+	*/
 }
 
 // inspectImageArchitectures 检测镜像支持的架构
