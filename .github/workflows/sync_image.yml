@@ -23,12 +23,6 @@ jobs:
       - name: 设置 QEMU 环境
         uses: docker/setup-qemu-action@v3
 
-      - name: 设置 Buildx 环境
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: image=moby/buildkit:v0.9.3
-          install: true
-
       - name: 拉取同步镜像
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
@@ -59,9 +53,7 @@ jobs:
           echo "  Docker Namespace: ${DOCKER_NAMESPACE}"
 
           docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v /tmp/.buildx:/tmp/.buildx \
-            -v ~/.docker:/root/.docker \
+            -v /var/run/docker.sock:/var/run/docker.sock
             --privileged \
             -e AK="${AK}" \
             -e SK="${SK}" \
@@ -75,7 +67,6 @@ jobs:
             -e DOCKER_PASSWORD="${DOCKER_PASSWORD}" \
             -e DOCKER_BUILDKIT=1 \
             -e DOCKER_CLI_EXPERIMENTAL=enabled \
-            -e BUILDX_CONFIG=/tmp/.buildx \
             $IMAGE \
             --config=/app/configs/rules.yaml
 

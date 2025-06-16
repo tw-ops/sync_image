@@ -141,9 +141,9 @@ func (b *SDKBuilder) buildWithBuildx(ctx context.Context, sourceImage, targetIma
 	}
 	defer b.cleanupDockerfile()
 
-	// 检查 buildx 环境是否可用
-	if err := b.checkBuildxEnvironment(); err != nil {
-		return fmt.Errorf("buildx 环境检查失败: %w", err)
+	// 确保有可用的多平台构建器
+	if err := b.ensureMultiPlatformBuilder(); err != nil {
+		return fmt.Errorf("设置多平台构建器失败: %w", err)
 	}
 
 	// 使用 buildx 命令进行多架构构建
@@ -346,58 +346,9 @@ func (b *SDKBuilder) cleanupDockerfile() {
 	}
 }
 
-// checkBuildxEnvironment 检查并设置 buildx 环境以支持多平台构建
-func (b *SDKBuilder) checkBuildxEnvironment() error {
-	b.logger.Debug("检查 buildx 环境")
-
-	// 检查 buildx 是否可用
-	checkCmd := exec.Command("docker", "buildx", "version")
-	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("buildx 不可用: %w", err)
-	}
-
-	// 检查当前构建器
-	lsCmd := exec.Command("docker", "buildx", "ls")
-	output, err := lsCmd.Output()
-	if err != nil {
-		b.logger.Warn("无法列出 buildx 构建器: %v", err)
-		// 如果无法列出构建器，尝试创建一个
-		return b.ensureMultiPlatformBuilder()
-	}
-
-	outputStr := string(output)
-	b.logger.Debug("当前 buildx 构建器:\n```\n%s\n```", outputStr)
-
-	// 检查是否有支持多平台的活跃构建器
-	if b.hasMultiPlatformBuilder(outputStr) {
-		b.logger.Info("发现支持多平台的 buildx 构建器")
-		return nil
-	}
-
-	// 如果没有合适的构建器，创建一个
-	b.logger.Info("当前构建器不支持多平台，创建新的构建器")
-	return b.ensureMultiPlatformBuilder()
-}
-
-// hasMultiPlatformBuilder 检查是否有支持多平台的构建器
-func (b *SDKBuilder) hasMultiPlatformBuilder(output string) bool {
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		// 查找活跃的构建器（带*标记）
-		if strings.Contains(line, "*") {
-			// 检查是否是 docker-container 或 kubernetes 驱动
-			if strings.Contains(line, "docker-container") || strings.Contains(line, "kubernetes") {
-				b.logger.Debug("发现活跃的多平台构建器: %s", strings.TrimSpace(line))
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // ensureMultiPlatformBuilder 确保有支持多平台的构建器
 func (b *SDKBuilder) ensureMultiPlatformBuilder() error {
-	b.logger.Info("创建支持多平台的 buildx 构建器")
+	b.logger.Info("设置多平台 buildx 构建器")
 
 	// 创建新的构建器
 	builderName := "multiplatform-builder"
@@ -456,11 +407,11 @@ func (b *SDKBuilder) ensureDockerLogin(ctx context.Context) error {
 		return fmt.Errorf("Docker SDK 登录失败: %w", err)
 	}
 
-	// 2. 然后进行 CLI 登录（用于 buildx）
+	// 2. 然后进行 CLI 登录（用于多架构构建）
 	return b.ensureCLILogin(registryAddr)
 }
 
-// ensureCLILogin 确保 CLI 环境下的 Docker 登录（用于 buildx）
+// ensureCLILogin 确保 CLI 环境下的 Docker 登录（用于多架构构建）
 func (b *SDKBuilder) ensureCLILogin(registryAddr string) error {
 	b.logger.Debug("确保 CLI 环境下的 Docker 登录: `%s`", registryAddr)
 
