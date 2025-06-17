@@ -1,6 +1,6 @@
-# Google Container Registry Mirror
+# 容器镜像同步服务
 
-> Google Container Registry 镜像加速服务
+> 支持多种云服务商的容器镜像同步服务，智能检测目标仓库类型并自动选择最优处理方式
 
 ## 免责声明
 
@@ -98,15 +98,56 @@ swr.cn-southwest-2.myhuaweicloud.com/wutongbase/{image}:{tag}
 
 ### 环境变量配置
 
-| 变量名             | 说明                                             | 示例     |
-| ------------------ | ------------------------------------------------ | -------- |
-| `DOCKER_REGISTRY`  | Docker 注册表地址，推到 Docker Hub 时为空        | -        |
-| `DOCKER_NAMESPACE` | Docker 命名空间，Docker Hub 账号(不带@email部分) | `tw-ops` |
-| `DOCKER_USER`      | Docker 用户名，Docker Hub 账号(不带@email部分)   | `tw-ops` |
-| `DOCKER_PASSWORD`  | Docker 密码                                      | -        |
-| `HW_AK`            | 华为云 Access Key，用于调整镜像为公共权限        | -        |
-| `HW_SK`            | 华为云 Secret Key                                | -        |
+#### 基础配置
 
+| 变量名        | 说明                    | 示例                          |
+| ------------- | ----------------------- | ----------------------------- |
+| `PLATFORMS`   | 支持的平台架构          | `linux/amd64,linux/arm64`    |
+
+#### 华为云 SWR 配置（可选，用于自动设置镜像公开权限）
+
+| 变量名                   | 说明                                      | 示例               |
+| ------------------------ | ----------------------------------------- | ------------------ |
+| `HUAWEI_SWR_ACCESS_KEY`  | 华为云 Access Key（可选）                 | -                  |
+| `HUAWEI_SWR_SECRET_KEY`  | 华为云 Secret Key（可选）                 | -                  |
+| `HUAWEI_SWR_REGION`      | 华为云区域，默认 `cn-southwest-2`         | `cn-southwest-2`   |
+
+**说明：** 华为云配置是可选的。如果配置了，系统会在推送到华为云SWR后自动设置镜像为公开访问。如果未配置，镜像将保持默认的私有状态。
+
+#### 通用仓库配置（推荐）
+
+适用于Docker Hub、私有仓库等所有其他仓库：
+
+| 变量名              | 说明                                    | 示例                                    |
+| ------------------ | --------------------------------------- | --------------------------------------- |
+| `GENERIC_REGISTRY` | 仓库地址                                | `docker.io`                             |
+| `GENERIC_NAMESPACE`| 命名空间（可选）                        | `my-namespace`                          |
+| `GENERIC_USERNAME` | 用户名                                  | `docker_username`                       |
+| `GENERIC_PASSWORD` | 密码或访问令牌                          | `docker_token`                          |
+
+**使用示例：**
+
+```bash
+# Docker Hub
+export GENERIC_REGISTRY="docker.io"
+export GENERIC_USERNAME="your_docker_username"
+export GENERIC_PASSWORD="your_docker_password_or_token"
+
+# 私有仓库
+export GENERIC_REGISTRY="your-private-registry.com"
+export GENERIC_USERNAME="your_username"
+export GENERIC_PASSWORD="your_password"
+```
+
+### 架构说明
+
+本项目采用**统一通用处理器 + 后处理机制架构**：
+
+- **单一处理器**：所有仓库（包括华为云SWR、Docker Hub、私有仓库等）都使用同一个通用处理器
+- **后处理机制**：推送完成后，系统会自动执行适用的后处理操作
+- **华为云后处理**：当推送到华为云SWR时，会自动调用华为云SDK设置镜像为公开访问
+- **可扩展设计**：后处理机制支持添加其他云服务商的特殊处理逻辑
+- **配置灵活**：所有配置都是可选的，支持匿名访问公共仓库
 ## 本地脚本使用
 
 ### 拉取并转换单个镜像
@@ -167,8 +208,7 @@ echo "command not found:docker or ctr"
 
 如需自定义架构，可以在配置文件中修改 `platforms` 参数：
 ```yaml
-docker:
-  platforms: "linux/amd64,linux/arm64,linux/s390x"
+platforms: "linux/amd64,linux/arm64,linux/s390x"
 ```
 
 ## 本地构建和使用
@@ -189,14 +229,6 @@ go build -o sync-image cmd/sync/main.go
 # 查看版本信息
 ./build/sync-image --version
 ```
-
-### 功能特性
-
-- **🔍 智能架构检测**：自动检测上游镜像支持的架构
-- **⚡ 性能优化**：根据架构情况选择最优构建方式
-- **📊 详细反馈**：在 Issue 中显示完整的架构信息
-- **🛡️ 错误处理**：友好的错误信息和排查建议
-- **🔒 安全增强**：输入验证和命令注入防护
 
 ## Docker 使用
 
@@ -230,14 +262,6 @@ docker run --rm \
   --github.user=your_user \
   --github.repo=your_repo
 ```
-
-### CI/CD 集成
-
-GitHub Actions 现在使用 Docker 镜像运行，提供：
-- **环境一致性**: 开发、测试、生产环境完全一致
-- **多架构支持**: 支持 AMD64 和 ARM64 架构
-- **自动化部署**: 基于 Git 标签自动构建和发布
-- **安全保障**: 基于 Ubuntu 24.04 LTS，获得最新安全补丁
 
 ## 常见问题
 

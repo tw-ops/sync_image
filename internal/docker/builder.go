@@ -16,7 +16,6 @@ import (
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 
-	"sync-image/internal/config"
 	"sync-image/pkg/errors"
 	"sync-image/pkg/logger"
 	"sync-image/pkg/utils"
@@ -34,9 +33,18 @@ type Builder interface {
 // SDKBuilder 使用 Docker SDK 的构建器实现
 type SDKBuilder struct {
 	client       *client.Client
-	config       *config.DockerConfig
+	config       *BuilderConfig
 	logger       logger.Logger
 	lastArchInfo string // 最后一次构建的架构信息
+}
+
+// BuilderConfig Docker构建器配置
+type BuilderConfig struct {
+	Registry  string
+	Namespace string
+	Username  string
+	Password  string
+	Platforms string
 }
 
 // createDockerClient 创建 Docker 客户端
@@ -59,7 +67,7 @@ func createDockerClient(log logger.Logger) (*client.Client, error) {
 }
 
 // NewBuilder 创建新的 Docker 构建器（使用 SDK 版本）
-func NewBuilder(cfg *config.DockerConfig, log logger.Logger) Builder {
+func NewBuilder(cfg *BuilderConfig, log logger.Logger) Builder {
 	cli, err := createDockerClient(log)
 	if err != nil {
 		log.Error("创建 Docker 客户端失败，程序无法继续: %v", err)

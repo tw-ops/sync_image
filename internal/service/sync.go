@@ -30,7 +30,7 @@ type DefaultSyncService struct {
 	issueProcessor   *githubclient.IssueProcessor
 	dockerBuilder    docker.Builder
 	imageTransformer *docker.ImageTransformer
-	registryManager  *registry.RegistryManager
+	registryFactory  *registry.RegistryManagerFactory
 	logger           logger.Logger
 }
 
@@ -41,7 +41,7 @@ func NewSyncService(
 	issueProcessor *githubclient.IssueProcessor,
 	dockerBuilder docker.Builder,
 	imageTransformer *docker.ImageTransformer,
-	registryManager *registry.RegistryManager,
+	registryFactory *registry.RegistryManagerFactory,
 	log logger.Logger,
 ) SyncService {
 	return &DefaultSyncService{
@@ -50,7 +50,7 @@ func NewSyncService(
 		issueProcessor:   issueProcessor,
 		dockerBuilder:    dockerBuilder,
 		imageTransformer: imageTransformer,
-		registryManager:  registryManager,
+		registryFactory:  registryFactory,
 		logger:           log,
 	}
 }
@@ -115,11 +115,19 @@ func (s *DefaultSyncService) processSingleIssue(ctx context.Context, issue *gith
 func (s *DefaultSyncService) syncImage(ctx context.Context, originalImage, platform string) (sourceImage, targetImage string, err error) {
 	s.logger.Info("开始同步镜像: %s", originalImage)
 
+	// 获取有效的通用配置
+	genericConfig := s.config.GetEffectiveGenericConfig()
+	var registry, namespace string
+	if genericConfig != nil {
+		registry = genericConfig.Registry
+		namespace = genericConfig.Namespace
+	}
+
 	// 转换镜像名称
 	sourceImage, targetImage, err = s.imageTransformer.Transform(
 		originalImage,
-		s.config.Docker.Registry,
-		s.config.Docker.Namespace,
+		registry,
+		namespace,
 	)
 	if err != nil {
 		return "", "", fmt.Errorf("镜像名称转换失败: %w", err)
@@ -137,13 +145,51 @@ func (s *DefaultSyncService) syncImage(ctx context.Context, originalImage, platf
 		return sourceImage, targetImage, fmt.Errorf("Docker 构建推送失败: %w", err)
 	}
 
-	// 设置镜像权限
-	if err := s.registryManager.ProcessImage(targetImage); err != nil {
+	// 动态创建仓库处理器并设置镜像权限
+	if err := s.processImageWithDynamicRegistry(targetImage); err != nil {
 		return sourceImage, targetImage, fmt.Errorf("设置镜像权限失败: %w", err)
 	}
 
 	s.logger.Info("镜像同步完成: %s", targetImage)
 	return sourceImage, targetImage, nil
+}
+
+// processImageWithDynamicRegistry 动态创建仓库处理器并处理镜像
+func (s *DefaultSyncService) processImageWithDynamicRegistry(targetImage string) error {
+	s.logger.Debug("开始动态处理镜像: %s", targetImage)
+
+	// 从目标镜像URL中提取仓库地址
+	registryURL := s.extractRegistryURL(targetImage)
+	s.logger.Debug("提取到仓库地址: %s", registryURL)
+
+	// 创建对应的仓库处理器
+	processor, err := s.registryFactory.CreateProcessor(registryURL)
+	if err != nil {
+		return fmt.Errorf("创建仓库处理器失败: %w", err)
+	}
+
+	s.logger.Info("使用处理器: %s 处理镜像: %s", processor.GetName(), targetImage)
+
+	// 创建仓库管理器并处理镜像
+	registryManager := registry.NewRegistryManager(processor, s.logger)
+	if err := registryManager.ProcessImage(targetImage); err != nil {
+		return fmt.Errorf("处理镜像失败: %w", err)
+	}
+
+	s.logger.Info("镜像处理完成，使用的处理器类型: %s", processor.GetType())
+	return nil
+}
+
+// extractRegistryURL 从镜像名称中提取仓库URL
+func (s *DefaultSyncService) extractRegistryURL(imageName string) string {
+	// 镜像名称格式: registry.domain.com/namespace/image:tag
+	parts := strings.Split(imageName, "/")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+
+	// 如果没有明确的注册表域名，默认为 Docker Hub
+	return "docker.io"
 }
 
 // generateResult 生成结果报告
